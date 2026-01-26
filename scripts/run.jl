@@ -1,7 +1,6 @@
 import POMDPs
 import POMDPTools
 import TOML
-using StaticArrays: SVector
 
 using FleetReplacement
 
@@ -18,7 +17,7 @@ initial_info_state = InfoState(
     params["electric_vehicle"]["initial_price"],
     params["BET_productivity"]["start"]
 )
-# s₀ = State(SVector(initial_fleet...), initial_info_state)
+
 s₀ = State(initial_fleet, initial_info_state)
 
 # Create MDP with defaults - only pass s₀
