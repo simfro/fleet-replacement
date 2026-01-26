@@ -43,5 +43,11 @@ economic_lifetime = 5
 max_age = 7
 max_replacements = 1
 
+[residual_value]
+initial_depreciation = 0.20
+annual_depreciation_rate = 0.04
+market_elasticity = 1.0
+floor_fraction = 0.1
+
 [discount]
 gamma = 0.9

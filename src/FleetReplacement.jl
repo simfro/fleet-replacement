@@ -5,7 +5,7 @@ import POMDPs
 import POMDPTools
 import Parameters
 import TOML
-using Distributions: Normal
+using Distributions: Normal, mean
 using Random: AbstractRNG
 using StaticArrays: SVector
 
@@ -74,6 +74,11 @@ Parameters.@with_kw struct FleetReplacementMDP <: POMDPs.MDP{State, ReplacementD
     # Vehicle management
     max_age::Int = Int(_DEFAULT_PARAMS["vehicle_management"]["max_age"])
     max_replacements::Int = Int(_DEFAULT_PARAMS["vehicle_management"]["max_replacements"])
+    # Residual value parameters
+    residual_initial_depreciation::Float64 = _DEFAULT_PARAMS["residual_value"]["initial_depreciation"]
+    residual_annual_depreciation_rate::Float64 = _DEFAULT_PARAMS["residual_value"]["annual_depreciation_rate"]
+    residual_market_elasticity::Float64 = _DEFAULT_PARAMS["residual_value"]["market_elasticity"]
+    residual_floor_fraction::Float64 = _DEFAULT_PARAMS["residual_value"]["floor_fraction"]
     # Discount factor
     γ::Float64 = _DEFAULT_PARAMS["discount"]["gamma"]
     # Initial state (required - no default)

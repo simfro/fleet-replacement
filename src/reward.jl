@@ -74,7 +74,7 @@ function annual_depreciation(mdp::FleetReplacementMDP, v::AbstractVehicle)::Floa
 end
 
 function sale_result(mdp::FleetReplacementMDP, v::AbstractVehicle, s::State)::Float64
-    return residual_value(v, s.info_state) -
+    return residual_value(mdp, v, s.info_state) -
            book_value(mdp, v)
 end
 
@@ -83,26 +83,25 @@ function book_value(mdp::FleetReplacementMDP, v::AbstractVehicle)::Float64
 end
 
 function residual_value(
+        mdp::FleetReplacementMDP,
         v::AbstractVehicle,
-        info_state::InfoState,
-        d0::Real = 0.20,
-        r::Real = 0.04,
-        k::Real = 1.0,
-        floor_frac::Real = 0.1
+        info_state::InfoState
 )
     P0 = purchase_price(v) + 0.01 # Price of the current vehicle at purchase
     P_new = purchase_price(info_state, typeof(v)) # Price of a new vehicle at current time
 
     # Core linear piece after immediate drop
-    frac = max(0.0, (1 - d0) - r * age(v))
+    frac = max(0.0,
+        (1 - mdp.residual_initial_depreciation) -
+        mdp.residual_annual_depreciation_rate * age(v))
 
     # Market adjustment elasticity (0=no effect, 1=full proportionality)
-    market_adj = (P_new / P0)^k
+    market_adj = (P_new / P0)^mdp.residual_market_elasticity
 
     value = P0 * frac * market_adj
 
     # Floor at a fraction of today's new price
-    floor_val = floor_frac * P0
+    floor_val = mdp.residual_floor_fraction * P0
 
     return max(value, floor_val)
 end
