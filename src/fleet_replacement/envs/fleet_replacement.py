@@ -204,6 +204,12 @@ class FleetReplacementEnv(gym.Env):
         )
 
     def _update_fleet(self, action):
+        """Apply one replacement/keep action per vehicle and mutate fleet state.
+
+        For each vehicle index, the action either increments age (keep) or
+        replaces the vehicle with a DT/BET at age 0 using the current market
+        purchase price from the information state.
+        """
         for idx, a in enumerate(action):
             if a == Actions.KEEP.value:
                 self._fleet["age"][idx] += 1
@@ -223,6 +229,12 @@ class FleetReplacementEnv(gym.Env):
                 raise ValueError(f"Invalid action {a} for vehicle {idx}")
 
     def _update_info_state(self):
+        """Advance simulation year and update all market information variables.
+
+        The update follows the transition model: geometric Brownian motion for
+        energy prices, constant DT purchase price, mean-reverting BET purchase
+        price, and logistic BET productivity growth.
+        """
         self._current_year += 1
         self._info_state = {
             "current_year": self._current_year,
@@ -234,6 +246,7 @@ class FleetReplacementEnv(gym.Env):
         }
 
     def _update_energy_price_diesel(self) -> float:
+        """Update diesel energy price using one-step geometric Brownian motion."""
         diesel_price = float(self._info_state["energy_price_diesel"])
         growth = self.config.diesel_price.growth_rate
         volatility = self.config.diesel_price.volatility
@@ -243,6 +256,7 @@ class FleetReplacementEnv(gym.Env):
         return float(diesel_price * np.exp(drift + diffusion))
 
     def _update_energy_price_electricity(self) -> float:
+        """Update electricity price using one-step geometric Brownian motion."""
         electricity_price = float(self._info_state["energy_price_electricity"])
         growth = self.config.electricity_price.growth_rate
         volatility = self.config.electricity_price.volatility
@@ -252,6 +266,7 @@ class FleetReplacementEnv(gym.Env):
         return float(electricity_price * np.exp(drift + diffusion))
 
     def _update_purchase_price_BET(self) -> float:
+        """Update BET purchase price with mean reversion plus Gaussian noise."""
         purchase_price = float(self._info_state["purchase_price_BET"])
         bet_cfg = self.config.BET_price
         reversion = bet_cfg.mean_reversion_strength * (
@@ -261,9 +276,11 @@ class FleetReplacementEnv(gym.Env):
         return float(purchase_price + reversion + shock)
 
     def _update_purchase_price_DT(self) -> float:
+        """Return DT purchase price (constant through time in this model)."""
         return float(self._info_state["purchase_price_DT"])
 
     def _update_productivity_BET(self) -> float:
+        """Update BET productivity using a logistic adoption/productivity curve."""
         bet_prod_cfg = self.config.BET_productivity
         base = 1.0 / (
             1.0 + np.exp(-bet_prod_cfg.k * (self._current_year - bet_prod_cfg.t0))
