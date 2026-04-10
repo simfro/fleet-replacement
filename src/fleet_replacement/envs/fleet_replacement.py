@@ -163,8 +163,11 @@ class FleetReplacementEnv(gym.Env):
         return {
             "is_electric": np.zeros(fleet_size, dtype=np.int8),
             "age": np.zeros(fleet_size, dtype=np.int32),
-            "purchase_price": np.ones(fleet_size, dtype=np.float32)
-            * self.config.DT_price.initial_price,
+            "purchase_price": np.full(
+                fleet_size,
+                self.config.DT_price.initial_price,
+                dtype=np.float32,
+            ),
         }
 
     def _initial_info_state(self):
