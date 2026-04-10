@@ -28,13 +28,12 @@ class FleetReplacementEnv(gym.Env):
             config = load_env_config(config_path or default_config_path)
 
         self.config = config
-        self.fleet_size = self.config.fleet_size
+        self.fleet_size = self.config.vehicle_management.fleet_size
         self.max_vehicle_age = self.config.vehicle_management.max_age
         self.start_year = self.config.simulation_period.base_year
         self.final_year = self.config.simulation_period.final_year
         self._current_year = self.start_year
         self.render_mode = render_mode
-        self._bet_medium_multiplier = np.float32(self.config.bet_variant_multipliers[1])
 
         # is_electric: 0 = Diesel Truck (DT), 1 = Battery Electric Truck (BET)
         self.observation_space = spaces.Dict(
@@ -129,7 +128,7 @@ class FleetReplacementEnv(gym.Env):
             "is_electric": np.zeros(fleet_size, dtype=np.int8),
             "age": np.zeros(fleet_size, dtype=np.int32),
             "purchase_price": np.ones(fleet_size, dtype=np.float32)
-            * self.config.diesel_vehicle.initial_price,
+            * self.config.DT_price.initial_price,
         }
 
     def _initial_info_state(self):
@@ -137,8 +136,8 @@ class FleetReplacementEnv(gym.Env):
             "current_year": self.start_year,
             "energy_price_diesel": self.config.diesel_price.initial_price,
             "energy_price_electricity": self.config.electricity_price.initial_price,
-            "purchase_price_DT": self.config.diesel_vehicle.initial_price,
-            "purchase_price_BET": self.config.electric_vehicle.initial_price,
+            "purchase_price_DT": self.config.DT_price.initial_price,
+            "purchase_price_BET": self.config.BET_price.initial_price,
         }
 
     def step(self, action):

@@ -21,12 +21,12 @@ class StochasticPriceConfig:
 
 
 @dataclass(frozen=True)
-class DieselVehicleConfig:
+class DTPriceConfig:
     initial_price: float
 
 
 @dataclass(frozen=True)
-class ElectricVehicleConfig:
+class BETPriceConfig:
     initial_price: float
     long_term_mean: float
     mean_reversion_strength: float
@@ -34,7 +34,7 @@ class ElectricVehicleConfig:
 
 
 @dataclass(frozen=True)
-class BetProductivityConfig:
+class BETProductivityConfig:
     start: float
     max: float
     k: float
@@ -51,14 +51,16 @@ class OperationalConfig:
 
 
 @dataclass(frozen=True)
-class LoanConfig:
+class EconomicConfig:
     interest_rate: float
-    fraction: float
+    loan_fraction: float
     economic_lifetime: int
+    discount_factor: float
 
 
 @dataclass(frozen=True)
 class VehicleManagementConfig:
+    fleet_size: int
     max_age: int
     max_replacements: int
 
@@ -72,61 +74,36 @@ class ResidualValueConfig:
 
 
 @dataclass(frozen=True)
-class DiscountConfig:
-    gamma: float
-
-
-@dataclass(frozen=True)
-class FleetInitializationConfig:
-    initial_diesel_fraction: float
-    initial_age_min: int
-    initial_age_max: int
-
-
-@dataclass(frozen=True)
 class EnvConfig:
     simulation_period: SimulationPeriodConfig
-    fleet_size: int
     diesel_price: StochasticPriceConfig
     electricity_price: StochasticPriceConfig
-    diesel_vehicle: DieselVehicleConfig
-    electric_vehicle: ElectricVehicleConfig
-    bet_productivity: BetProductivityConfig
+    DT_price: DTPriceConfig
+    BET_price: BETPriceConfig
+    BET_productivity: BETProductivityConfig
     operational: OperationalConfig
-    loan: LoanConfig
+    economic: EconomicConfig
     vehicle_management: VehicleManagementConfig
     residual_value: ResidualValueConfig
-    discount: DiscountConfig
-    fleet_initialization: FleetInitializationConfig
-    bet_variant_multipliers: tuple[float, float, float]
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> EnvConfig:
         simulation_period = _require_section(data, "simulation_period")
         diesel_price = _require_section(data, "diesel_price")
         electricity_price = _require_section(data, "electricity_price")
-        diesel_vehicle = _require_section(data, "diesel_vehicle")
-        electric_vehicle = _require_section(data, "electric_vehicle")
-        bet_productivity = _require_section(data, "bet_productivity")
+        dt_price = _require_section(data, "DT_price")
+        bet_price = _require_section(data, "BET_price")
+        bet_productivity = _require_section(data, "BET_productivity")
         operational = _require_section(data, "operational")
-        loan = _require_section(data, "loan")
+        economic = _require_section(data, "economic")
         vehicle_management = _require_section(data, "vehicle_management")
         residual_value = _require_section(data, "residual_value")
-        discount = _require_section(data, "discount")
-        fleet_initialization = _require_section(data, "fleet_initialization")
-
-        multipliers = data.get("bet_variant_multipliers", [1.0, 1.15, 1.3])
-        if not isinstance(multipliers, list) or len(multipliers) != 3:
-            raise ValueError(
-                "'bet_variant_multipliers' must be a list of exactly 3 values"
-            )
 
         return cls(
             simulation_period=SimulationPeriodConfig(
                 base_year=int(simulation_period["base_year"]),
                 final_year=int(simulation_period["final_year"]),
             ),
-            fleet_size=int(data.get("fleet_size", 10)),
             diesel_price=StochasticPriceConfig(
                 initial_price=float(diesel_price["initial_price"]),
                 growth_rate=float(diesel_price["growth_rate"]),
@@ -137,20 +114,16 @@ class EnvConfig:
                 growth_rate=float(electricity_price["growth_rate"]),
                 volatility=float(electricity_price["volatility"]),
             ),
-            diesel_vehicle=DieselVehicleConfig(
-                initial_price=float(diesel_vehicle["initial_price"]),
+            DT_price=DTPriceConfig(
+                initial_price=float(dt_price["initial_price"]),
             ),
-            electric_vehicle=ElectricVehicleConfig(
-                initial_price=float(electric_vehicle["initial_price"]),
-                long_term_mean=float(electric_vehicle["long_term_mean"]),
-                mean_reversion_strength=float(
-                    electric_vehicle["mean_reversion_strength"]
-                ),
-                purchase_price_volatility=float(
-                    electric_vehicle["purchase_price_volatility"]
-                ),
+            BET_price=BETPriceConfig(
+                initial_price=float(bet_price["initial_price"]),
+                long_term_mean=float(bet_price["long_term_mean"]),
+                mean_reversion_strength=float(bet_price["mean_reversion_strength"]),
+                purchase_price_volatility=float(bet_price["purchase_price_volatility"]),
             ),
-            bet_productivity=BetProductivityConfig(
+            BET_productivity=BETProductivityConfig(
                 start=float(bet_productivity["start"]),
                 max=float(bet_productivity["max"]),
                 k=float(bet_productivity["k"]),
@@ -167,12 +140,14 @@ class EnvConfig:
                 income_per_km=float(operational["income_per_km"]),
                 annual_mileage_km=float(operational["annual_mileage_km"]),
             ),
-            loan=LoanConfig(
-                interest_rate=float(loan["interest_rate"]),
-                fraction=float(loan["fraction"]),
-                economic_lifetime=int(loan["economic_lifetime"]),
+            economic=EconomicConfig(
+                interest_rate=float(economic["interest_rate"]),
+                loan_fraction=float(economic["loan_fraction"]),
+                economic_lifetime=int(economic["economic_lifetime"]),
+                discount_factor=float(economic["discount_factor"]),
             ),
             vehicle_management=VehicleManagementConfig(
+                fleet_size=int(vehicle_management["fleet_size"]),
                 max_age=int(vehicle_management["max_age"]),
                 max_replacements=int(vehicle_management["max_replacements"]),
             ),
@@ -183,21 +158,6 @@ class EnvConfig:
                 ),
                 market_elasticity=float(residual_value["market_elasticity"]),
                 floor_fraction=float(residual_value["floor_fraction"]),
-            ),
-            discount=DiscountConfig(
-                gamma=float(discount["gamma"]),
-            ),
-            fleet_initialization=FleetInitializationConfig(
-                initial_diesel_fraction=float(
-                    fleet_initialization["initial_diesel_fraction"]
-                ),
-                initial_age_min=int(fleet_initialization["initial_age_min"]),
-                initial_age_max=int(fleet_initialization["initial_age_max"]),
-            ),
-            bet_variant_multipliers=(
-                float(multipliers[0]),
-                float(multipliers[1]),
-                float(multipliers[2]),
             ),
         )
 
@@ -223,26 +183,22 @@ def _require_section(data: dict[str, Any], section_name: str) -> dict[str, Any]:
 def _validate_config(config: EnvConfig) -> None:
     if config.simulation_period.base_year >= config.simulation_period.final_year:
         raise ValueError("simulation_period.base_year must be less than final_year")
-    if config.fleet_size <= 0:
-        raise ValueError("fleet_size must be > 0")
-    if not 0.0 <= config.fleet_initialization.initial_diesel_fraction <= 1.0:
-        raise ValueError(
-            "fleet_initialization.initial_diesel_fraction must be in [0, 1]"
-        )
-    if config.fleet_initialization.initial_age_min < 0:
-        raise ValueError("fleet_initialization.initial_age_min must be >= 0")
-    if config.fleet_initialization.initial_age_max > config.vehicle_management.max_age:
-        raise ValueError(
-            "fleet_initialization.initial_age_max must be <= vehicle_management.max_age"
-        )
-    if (
-        config.fleet_initialization.initial_age_min
-        > config.fleet_initialization.initial_age_max
-    ):
-        raise ValueError(
-            "fleet_initialization.initial_age_min must be <= initial_age_max"
-        )
+    if config.vehicle_management.fleet_size <= 0:
+        raise ValueError("vehicle_management.fleet_size must be > 0")
     if config.vehicle_management.max_age <= 0:
         raise ValueError("vehicle_management.max_age must be > 0")
-    if not 0.0 < config.discount.gamma <= 1.0:
-        raise ValueError("discount.gamma must be in (0, 1]")
+    if config.vehicle_management.max_replacements < 0:
+        raise ValueError("vehicle_management.max_replacements must be >= 0")
+    if (
+        config.vehicle_management.max_replacements
+        > config.vehicle_management.fleet_size
+    ):
+        raise ValueError(
+            "vehicle_management.max_replacements must be <= vehicle_management.fleet_size"
+        )
+    if not 0.0 <= config.economic.loan_fraction <= 1.0:
+        raise ValueError("economic.loan_fraction must be in [0, 1]")
+    if config.economic.economic_lifetime <= 0:
+        raise ValueError("economic.economic_lifetime must be > 0")
+    if not 0.0 < config.economic.discount_factor <= 1.0:
+        raise ValueError("economic.discount_factor must be in (0, 1]")
