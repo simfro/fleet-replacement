@@ -288,3 +288,6 @@ class FleetReplacementEnv(gym.Env):
         return float(
             bet_prod_cfg.start + (bet_prod_cfg.max - bet_prod_cfg.start) * base
         )
+
+    def _calculate_reward(self) -> float:
+        return 1.0
