@@ -1,3 +1,7 @@
-from fleet_replacement.envs import FleetReplacementEnv, GridWorldEnv
+from gymnasium.envs.registration import register
 
-__all__ = ["FleetReplacementEnv", "GridWorldEnv"]
+register(
+    id="FleetReplacement-v0",
+    entry_point="fleet_replacement.envs.fleet_replacement:FleetReplacementEnv",
+    max_episode_steps=None,
+)
