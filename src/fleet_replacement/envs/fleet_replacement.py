@@ -285,7 +285,7 @@ class FleetReplacementEnv(gym.Env):
 
     def _update_purchase_price_BET(self) -> float:
         """Update BET purchase price with mean reversion plus Gaussian noise."""
-        return bet_price_mean_reversion_step(
+        return BET_price_mean_reversion_step(
             current_price=float(self._info_state["purchase_price_BET"]),
             config=self.config.BET_price,
             rng=self.np_random,
@@ -293,7 +293,7 @@ class FleetReplacementEnv(gym.Env):
 
     def _update_purchase_price_DT(self) -> float:
         """Return DT purchase price (constant through time in this model)."""
-        return dt_price_step(current_price=float(self._info_state["purchase_price_DT"]))
+        return DT_price_step(current_price=float(self._info_state["purchase_price_DT"]))
 
     def _update_productivity_BET(self) -> float:
         """Update BET productivity using a logistic adoption/productivity curve."""

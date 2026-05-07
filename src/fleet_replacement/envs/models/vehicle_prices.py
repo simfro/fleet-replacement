@@ -5,12 +5,12 @@ import numpy as np
 from fleet_replacement.config import BETPriceConfig
 
 
-def dt_price_step(current_price: float) -> float:
+def DT_price_step(current_price: float) -> float:
     """Return DT purchase price for a process with zero drift and volatility."""
     return float(current_price)
 
 
-def bet_price_mean_reversion_step(
+def BET_price_mean_reversion_step(
     current_price: float,
     config: BETPriceConfig,
     rng: np.random.Generator,
