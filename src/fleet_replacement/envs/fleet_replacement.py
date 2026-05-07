@@ -7,10 +7,10 @@ from gymnasium import spaces
 
 from fleet_replacement.config import EnvConfig, load_env_config
 from fleet_replacement.envs.models import (
-    bet_price_mean_reversion_step,
-    bet_productivity_logistic,
+    BET_price_mean_reversion_step,
+    BET_productivity_logistic,
     diesel_price_step,
-    dt_price_step,
+    DT_price_step,
     electricity_price_step,
 )
 
@@ -41,7 +41,6 @@ class FleetReplacementEnv(gym.Env):
         self.final_year = self.config.simulation_period.final_year
         self._current_year = self.start_year
         self.render_mode = render_mode
-        self._last_action: np.ndarray | None = None
 
         # is_electric: 0 = Diesel Truck (DT), 1 = Battery Electric Truck (BET)
         self.observation_space = spaces.Dict(
@@ -145,28 +144,18 @@ class FleetReplacementEnv(gym.Env):
         return {"fleet": self._fleet, "information_state": information_state_obs}
 
     def _get_info(self):
-        """Return auxiliary metadata for debugging and analysis.
-
-        Includes the most recent action (both raw integer action IDs and
-        human-readable action names).
-        """
-        if self._last_action is None:
-            last_action = None
-            last_action_names = None
-        else:
-            last_action = self._last_action.copy()
-            last_action_names = [Actions(int(a)).name for a in self._last_action]
+        """Return auxiliary metadata for debugging and analysis."""
 
         return {
-            "last_action": last_action,
-            "last_action_names": last_action_names,
+            "total_reward": "---",
+            "revenue": "---",
+            "cost": "---",
         }
 
     def reset(self, *, seed=None, options=None):
         super().reset(seed=seed)
 
         self._current_year = self.start_year
-        self._last_action = None
         self._fleet = self._initial_fleet(self.fleet_size)
         self._info_state = self._initial_info_state()
 
@@ -207,15 +196,14 @@ class FleetReplacementEnv(gym.Env):
         }
 
     def step(self, action):
-        self._last_action = np.asarray(action, dtype=np.int64).copy()
         self._update_fleet(action)
         self._update_info_state()
-        reward = 1  # self._calculate_reward()
 
         observation = self._get_obs()
         info = self._get_info()
-
         terminated = self._current_year >= self.final_year
+
+        reward = 1
 
         return (
             observation,
@@ -260,53 +248,32 @@ class FleetReplacementEnv(gym.Env):
         self._current_year += 1
         self._info_state = {
             "current_year": self._current_year,
-            "energy_price_diesel": self._update_energy_price_diesel(),
-            "energy_price_electricity": self._update_energy_price_electricity(),
-            "purchase_price_DT": self._update_purchase_price_DT(),
-            "purchase_price_BET": self._update_purchase_price_BET(),
-            "productivity_BET": self._update_productivity_BET(),
+            "energy_price_diesel": diesel_price_step(
+                current_price=float(self._info_state["energy_price_diesel"]),
+                config=self.config.diesel_price,
+                rng=self.np_random,
+            ),
+            "energy_price_electricity": electricity_price_step(
+                current_price=float(self._info_state["energy_price_electricity"]),
+                config=self.config.electricity_price,
+                rng=self.np_random,
+            ),
+            "purchase_price_DT": DT_price_step(
+                current_price=float(self._info_state["purchase_price_DT"])
+            ),
+            "purchase_price_BET": BET_price_mean_reversion_step(
+                current_price=float(self._info_state["purchase_price_BET"]),
+                config=self.config.BET_price,
+                rng=self.np_random,
+            ),
+            "productivity_BET": BET_productivity_logistic(
+                year=self._current_year,
+                config=self.config.BET_productivity,
+            ),
         }
 
-    def _update_energy_price_diesel(self) -> float:
-        """Update diesel energy price using one-step geometric Brownian motion."""
-        return diesel_price_step(
-            current_price=float(self._info_state["energy_price_diesel"]),
-            config=self.config.diesel_price,
-            rng=self.np_random,
-        )
-
-    def _update_energy_price_electricity(self) -> float:
-        """Update electricity price using one-step geometric Brownian motion."""
-        return electricity_price_step(
-            current_price=float(self._info_state["energy_price_electricity"]),
-            config=self.config.electricity_price,
-            rng=self.np_random,
-        )
-
-    def _update_purchase_price_BET(self) -> float:
-        """Update BET purchase price with mean reversion plus Gaussian noise."""
-        return BET_price_mean_reversion_step(
-            current_price=float(self._info_state["purchase_price_BET"]),
-            config=self.config.BET_price,
-            rng=self.np_random,
-        )
-
-    def _update_purchase_price_DT(self) -> float:
-        """Return DT purchase price (constant through time in this model)."""
-        return DT_price_step(current_price=float(self._info_state["purchase_price_DT"]))
-
-    def _update_productivity_BET(self) -> float:
-        """Update BET productivity using a logistic adoption/productivity curve."""
-        return bet_productivity_logistic(
-            year=self._current_year,
-            config=self.config.BET_productivity,
-        )
-
-    def _calculate_reward(self) -> float:
-        return 1.0
-
     def render(self):
-        """Print the current environment state and last action to the terminal."""
+        """Print the current environment state to the terminal."""
         if self.render_mode not in (None, "human"):
             raise ValueError(
                 f"Unsupported render_mode '{self.render_mode}'. Use None or 'human'."
@@ -316,18 +283,12 @@ class FleetReplacementEnv(gym.Env):
         info_state = self._info_state
         info = self._get_info()
 
-        if info["last_action_names"] is None:
-            action_summary = "No action taken yet (environment just reset)."
-        else:
-            action_summary = ", ".join(info["last_action_names"])
-
         n_electric = int(np.sum(fleet["is_electric"]))
         n_diesel = int(self.fleet_size - n_electric)
         avg_age = float(np.mean(fleet["age"]))
 
         print("\n=== FleetReplacementEnv ===")
         print(f"Year: {self._current_year}")
-        print(f"Last action: {action_summary}")
         print("Fleet")
         print(f"  Total vehicles: {self.fleet_size}")
         print(f"  Diesel: {n_diesel} | Electric: {n_electric}")

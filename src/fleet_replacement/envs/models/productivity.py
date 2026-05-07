@@ -5,7 +5,7 @@ import numpy as np
 from fleet_replacement.config import BETProductivityConfig
 
 
-def bet_productivity_logistic(
+def BET_productivity_logistic(
     year: int,
     config: BETProductivityConfig,
 ) -> float:
