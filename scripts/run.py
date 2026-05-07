@@ -3,7 +3,6 @@ import gymnasium as gym
 # Import to trigger environment registration
 import fleet_replacement  # noqa: F401
 
-
 env = gym.make("FleetReplacement-v0")
 
 env
