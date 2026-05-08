@@ -221,6 +221,7 @@ class FleetReplacementEnv(gym.Env):
         electricity_cost = 0.0
         interest_cost = 0.0
         depericiation_cost = 0.0
+        sale_result = 0.0
         for i in range(self.fleet_size):
             if self._fleet["is_electric"][i]:
                 revenue += self._revenue_BET()
@@ -234,14 +235,25 @@ class FleetReplacementEnv(gym.Env):
                 purchase_price=self._fleet["purchase_price"][i],
             )
 
+            if action[i] != Actions.KEEP.value:
+                sale_result += self._sale_result(
+                    purchase_price=self._fleet["purchase_price"][i],
+                    age=self._fleet["age"][i],
+                    is_electric=self._fleet["is_electric"][i],
+                )
+
         salary_cost = self.config.operational.driver_salary_annual * self.fleet_size
 
-        return revenue - (
-            diesel_cost
-            + electricity_cost
-            + interest_cost
-            + depericiation_cost
-            + salary_cost
+        return (
+            revenue
+            - (
+                diesel_cost
+                + electricity_cost
+                + interest_cost
+                + depericiation_cost
+                + salary_cost
+            )
+            + sale_result
         )
 
     def _sale_result(self, purchase_price, age, is_electric):
