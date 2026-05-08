@@ -2,7 +2,11 @@ from __future__ import annotations
 
 import numpy as np
 
-from fleet_replacement.config import StochasticPriceConfig
+from fleet_replacement.config import (
+    BETProductivityConfig,
+    BETPriceConfig,
+    StochasticPriceConfig,
+)
 
 
 def _geometric_brownian_step(
@@ -44,3 +48,28 @@ def electricity_price_step(
         volatility=config.volatility,
         rng=rng,
     )
+
+
+def DT_price_step(current_price: float) -> float:
+    """Return DT purchase price for a process with zero drift and volatility."""
+    return float(current_price)
+
+
+def BET_price_mean_reversion_step(
+    current_price: float,
+    config: BETPriceConfig,
+    rng: np.random.Generator,
+) -> float:
+    """Advance BET purchase price by one mean-reverting step with Gaussian noise."""
+    reversion = config.mean_reversion_strength * (config.long_term_mean - current_price)
+    shock = rng.normal(0.0, config.purchase_price_volatility)
+    return float(current_price + reversion + shock)
+
+
+def BET_productivity_logistic(
+    year: int,
+    config: BETProductivityConfig,
+) -> float:
+    """Compute BET productivity from a logistic growth curve at a given year."""
+    base = 1.0 / (1.0 + np.exp(-config.k * (year - config.t0)))
+    return float(config.start + (config.max - config.start) * base)
