@@ -9,9 +9,11 @@ from fleet_replacement.config import EnvConfig, load_env_config
 from fleet_replacement.envs.models import (
     BET_price_mean_reversion_step,
     BET_productivity_logistic,
+    compute_reward,
     diesel_price_step,
     DT_price_step,
     electricity_price_step,
+    REWARD_COMPONENT_KEYS,
 )
 
 
@@ -107,6 +109,7 @@ class FleetReplacementEnv(gym.Env):
 
         self._fleet = self._initial_fleet(self.fleet_size)
         self._info_state = self._initial_info_state()
+        self._reward: dict[str, float]
 
         # One action per vehicle:
         # Actions.KEEP = keep, Actions.REPLACE_DT = replace with DT,
@@ -146,11 +149,7 @@ class FleetReplacementEnv(gym.Env):
     def _get_info(self):
         """Return auxiliary metadata for debugging and analysis."""
 
-        return {
-            "total_reward": "---",
-            "revenue": "---",
-            "cost": "---",
-        }
+        return {"reward": self._reward}
 
     def reset(self, *, seed=None, options=None):
         super().reset(seed=seed)
@@ -158,6 +157,7 @@ class FleetReplacementEnv(gym.Env):
         self._current_year = self.start_year
         self._fleet = self._initial_fleet(self.fleet_size)
         self._info_state = self._initial_info_state()
+        self._reward = dict.fromkeys(REWARD_COMPONENT_KEYS, 0.0)
 
         observation = self._get_obs()
         info = self._get_info()
@@ -199,11 +199,15 @@ class FleetReplacementEnv(gym.Env):
         self._update_fleet(action)
         self._update_info_state()
 
+        self._reward = compute_reward(
+            self._fleet, self._info_state, action, self.config
+        )
+        reward = self._reward["total_reward"]
+
         observation = self._get_obs()
         info = self._get_info()
-        terminated = self._current_year >= self.final_year
 
-        reward = self._get_reward(action)
+        terminated = self._current_year >= self.final_year
 
         return (
             observation,
@@ -212,127 +216,6 @@ class FleetReplacementEnv(gym.Env):
             False,
             info,
         )
-
-    def _get_reward(self, action):
-        """Calculate the reward for the current step based on fleet and info state."""
-
-        revenue = 0.0
-        diesel_cost = 0.0
-        electricity_cost = 0.0
-        interest_cost = 0.0
-        depericiation_cost = 0.0
-        sale_result = 0.0
-        for i in range(self.fleet_size):
-            if self._fleet["is_electric"][i]:
-                revenue += self._revenue_BET()
-                electricity_cost += self._electricity_cost()
-            else:
-                revenue += self._revenue_DT()
-                diesel_cost += self._diesel_cost()
-            interest_cost += self._interest_cost(self._fleet["purchase_price"][i])
-            depericiation_cost += self._annual_depreciation(
-                age=self._fleet["age"][i],
-                purchase_price=self._fleet["purchase_price"][i],
-            )
-
-            if action[i] != Actions.KEEP.value:
-                sale_result += self._sale_result(
-                    purchase_price=self._fleet["purchase_price"][i],
-                    age=self._fleet["age"][i],
-                    is_electric=self._fleet["is_electric"][i],
-                )
-
-        salary_cost = self.config.operational.driver_salary_annual * self.fleet_size
-
-        return (
-            revenue
-            - (
-                diesel_cost
-                + electricity_cost
-                + interest_cost
-                + depericiation_cost
-                + salary_cost
-            )
-            + sale_result
-        )
-
-    def _sale_result(self, purchase_price, age, is_electric):
-        return self.residual_value(purchase_price, age, is_electric) - self.book_value(
-            purchase_price, age
-        )
-
-    def residual_value(self, purchase_price, age, is_electric):
-        P0 = purchase_price + 0.01  # Avoid zero division
-        P_new = self._info_state[
-            "purchase_price_BET" if is_electric else "purchase_price_DT"
-        ]
-
-        d0 = self.config.residual_value.initial_depreciation
-        r = self.config.residual_value.annual_depreciation_rate
-
-        # Core linear piece after immediate drop
-        frac = max(0.0, (1 - d0) - r * age)
-
-        # Market adjustment elasticity (0=none, 1=proportional)
-        k = self.config.residual_value.market_elasticity
-        market_adj = (P_new / P0) ** k
-
-        value = P0 * frac * market_adj
-
-        # Floor at a fraction of purchase price to avoid zero or negative residual values for old vehicles
-        floor_val = self.config.residual_value.floor_fraction * P0
-
-        return max(value, floor_val)
-
-    def book_value(self, purchase_price, age):
-        return max(
-            0.0, purchase_price * (1 - age / self.config.economic.economic_lifetime)
-        )
-
-    def _annual_depreciation(self, age, purchase_price):
-        if age > self.config.economic.economic_lifetime:
-            return 0.0
-        else:
-            return purchase_price / self.config.economic.economic_lifetime
-
-    def _revenue_BET(self):
-        return (
-            self._info_state["productivity_BET"]
-            * self.config.operational.income_per_km
-            * self.config.operational.annual_mileage_km
-        )
-
-    def _revenue_DT(self):
-        return (
-            self.config.operational.income_per_km
-            * self.config.operational.annual_mileage_km
-        )
-
-    def _interest_cost(self, purchase_price):
-        return (
-            purchase_price
-            * self.config.economic.loan_fraction
-            * self.config.economic.interest_rate
-        )
-
-    def _electricity_cost(self):
-        milage = (
-            self.config.operational.annual_mileage_km
-            * self._info_state["productivity_BET"]
-        )
-        electricity_consumption = (
-            milage * self.config.operational.electricity_consumption_kwh_per_km
-        )
-        electricity_cost = (
-            electricity_consumption * self._info_state["energy_price_electricity"]
-        )
-        return electricity_cost
-
-    def _diesel_cost(self):
-        milage = self.config.operational.annual_mileage_km
-        fuel_consumption = milage * self.config.operational.fuel_consumption_l_per_km
-        diesel_cost = fuel_consumption * self._info_state["energy_price_diesel"]
-        return diesel_cost
 
     def _update_fleet(self, action):
         """Apply one replacement/keep action per vehicle and mutate fleet state.
@@ -422,3 +305,11 @@ class FleetReplacementEnv(gym.Env):
         print(f"  DT purchase price: {float(info_state['purchase_price_DT']):,.0f}")
         print(f"  BET purchase price: {float(info_state['purchase_price_BET']):,.0f}")
         print(f"  BET productivity: {float(info_state['productivity_BET']):.3f}")
+
+        if info["reward_components"]:
+            rc = info["reward_components"]
+            print("Reward components")
+            print(f"  Revenue: {float(rc['revenue']):,.2f}")
+            print(f"  Total cost: {float(rc['total_cost']):,.2f}")
+            print(f"  Sale result: {float(rc['sale_result']):,.2f}")
+            print(f"  Total reward: {float(rc['total_reward']):,.2f}")
