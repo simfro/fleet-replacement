@@ -7,7 +7,7 @@ from gymnasium import spaces
 
 from fleet_replacement.config import EnvConfig, load_env_config
 from fleet_replacement.envs.models import (
-    BET_price_mean_reversion_step,
+    BET_price_step,
     BET_productivity_logistic,
     compute_reward,
     diesel_price_step,
@@ -265,7 +265,7 @@ class FleetReplacementEnv(gym.Env):
             "purchase_price_DT": DT_price_step(
                 current_price=float(self._info_state["purchase_price_DT"])
             ),
-            "purchase_price_BET": BET_price_mean_reversion_step(
+            "purchase_price_BET": BET_price_step(
                 current_price=float(self._info_state["purchase_price_BET"]),
                 config=self.config.BET_price,
                 rng=self.np_random,

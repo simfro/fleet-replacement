@@ -55,7 +55,7 @@ def DT_price_step(current_price: float) -> float:
     return float(current_price)
 
 
-def BET_price_mean_reversion_step(
+def BET_price_step(
     current_price: float,
     config: BETPriceConfig,
     rng: np.random.Generator,
