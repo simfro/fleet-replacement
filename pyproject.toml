@@ -8,7 +8,7 @@ packages = ["src/fleet_replacement"]
 [project]
 name = "fleet_replacement"
 version = "0.0.1"
-dependencies = ["gymnasium", "pygame>=2.1.3", "pre-commit", "pyyaml>=6.0"]
+dependencies = ["gymnasium", "pygame>=2.1.3", "pre-commit", "pyyaml>=6.0", "linopy>=0.3", "highspy>=1.7"]
 
 [tool.setuptools]
 package-dir = { "" = "src" }
