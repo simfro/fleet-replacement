@@ -12,16 +12,16 @@ time         : 0 .. horizon-1       (planning periods)
 slot         : 0 .. fleet_size-1    (fleet slots)
 vehicle_type : "DT" | "BET"
 vehicle_age  : 0 .. max_age
-decision     : "Keep" | "Replace_DT" | "Replace_BET"
+decision     : "Replace_DT" | "Replace_BET"  (for x; Keep is implicit when both are 0)
 
 Variables
 ---------
 R[time, slot, vehicle_type, vehicle_age]
     Binary. 1 iff the vehicle of (type, age) occupies fleet slot `slot` at time t.
 
-x[time, slot, vehicle_type, vehicle_age, decision]
-    Binary. 1 iff decision `d` is taken for the vehicle of (type, age)
-    in slot `slot` at time t.
+x[time, slot, decision]
+    Binary. 1 iff replacement decision `d` is taken for fleet slot `slot` at time t.
+    Keep is implicit: x[t,s,Replace_DT] == 0 and x[t,s,Replace_BET] == 0 means Keep.
     Defined only for t in 0 .. horizon-2  (no decision at terminal period).
 """
 
@@ -191,6 +191,7 @@ class FleetReplacementData:
     vehicle_types: list[VehicleType] = field(init=False)
     vehicle_ages: np.ndarray = field(init=False)
     decisions: list[Decision] = field(init=False)
+    replacement_decisions: list[Decision] = field(init=False)
 
     def __post_init__(self) -> None:
         self.time_span = np.arange(self.params.horizon)
@@ -199,6 +200,7 @@ class FleetReplacementData:
         self.vehicle_types = VEHICLE_TYPES
         self.vehicle_ages = np.arange(self.params.max_age + 1)
         self.decisions = DECISIONS
+        self.replacement_decisions = [Decision.REPLACE_DT, Decision.REPLACE_BET]
 
     @property
     def fleet_size(self) -> int:
@@ -399,15 +401,14 @@ def build_model(data: FleetReplacementData, forecast: Forecast) -> linopy.Model:
         name="R",
     )
 
-    # x[time, slot, vehicle_type, vehicle_age, decision]
-    # Binary decision variable for all non-terminal periods.
+    # x[time, slot, decision] for decision in {Replace_DT, Replace_BET}
+    # Binary replacement decision variable. Keep is implicit when both are 0.
+    # Omitting (vehicle_type, vehicle_age) reduces binary variables by ~24x.
     model.add_variables(
         coords={
             "time": data.decision_time_span,
             "slot": data.fleet_slots,
-            "vehicle_type": data.vehicle_types,
-            "vehicle_age": data.vehicle_ages,
-            "decision": data.decisions,
+            "decision": data.replacement_decisions,
         },
         binary=True,
         name="x",
@@ -430,6 +431,7 @@ def add_constraints(model: linopy.Model, data: FleetReplacementData) -> None:
     R = model.variables["R"]
     x = model.variables["x"]
     max_age = p.max_age
+    h = p.horizon
 
     # Initial fleet: fix vehicle state at t=0 for each slot
     for slot_idx, vehicle in enumerate(data.initial_fleet):
@@ -450,31 +452,35 @@ def add_constraints(model: linopy.Model, data: FleetReplacementData) -> None:
         name="single_vehicle_per_slot_and_time",
     )
 
-    # Exactly one decision is made for each fleet slot at every decision period
+    # At most one replacement per slot per period; Keep is implicit when both are 0.
+    # (no_decision_for_nonexistent_vehicle is subsumed: single_vehicle_per_slot
+    # guarantees exactly one vehicle is always present to decide about.)
     model.add_constraints(
-        x.sum(dims=["vehicle_type", "vehicle_age", "decision"]) == 1,
-        name="single_decision_per_slot_and_time",
+        x.sum(dims="decision") <= 1,
+        name="at_most_one_replacement",
     )
 
-    # A decision can only be made for a vehicle present in the slot
+    # A vehicle at maximum age must be replaced (cannot keep).
+    # sum_v R[t,s,v,max_age] ∈ {0,1} due to single_vehicle_per_slot_and_time.
     model.add_constraints(
-        x <= R.isel(time=slice(0, len(data.decision_time_span))),
-        name="no_decision_for_nonexistent_vehicle",
-    )
-
-    # A vehicle at maximum age must be replaced (cannot keep)
-    model.add_constraints(
-        x.sel(vehicle_age=max_age, decision=Decision.KEEP) == 0,
+        x.sum(dims="decision")
+        >= R.sel(vehicle_age=max_age)
+        .sum(dims="vehicle_type")
+        .isel(time=slice(0, len(data.decision_time_span))),
         name="replace_at_max_age",
     )
 
-    # Keep transition: a kept vehicle ages by one period
+    # Keep transition: a kept vehicle ages by one period.
+    # Keep ≡ x_sum == 0, so R[t+1,s,v,a+1] >= R[t,s,v,a] - x_sum.
+    # When x_sum == 0: forces R[t+1,s,v,a+1] = 1 for the unique present vehicle.
+    # When x_sum == 1: RHS ≤ 0, constraint is slack (replaced vehicle need not age).
     model.add_constraints(
         R.isel(time=slice(1, None), vehicle_age=slice(1, max_age + 1)).assign_coords(
             time=data.decision_time_span,
             vehicle_age=data.vehicle_ages[:-1],
         )
-        >= x.sel(decision=Decision.KEEP).isel(vehicle_age=slice(0, max_age)),
+        >= R.isel(time=slice(0, h - 1), vehicle_age=slice(0, max_age))
+        - x.sum(dims="decision"),
         name="keep_transitions",
     )
 
@@ -773,17 +779,20 @@ def best_immediate_actions(
 
     This is the value fed back into the stochastic simulation at each step.
     """
-    x = model.solution["x"]  # xarray.DataArray of solved values
+    x = model.solution["x"]  # xarray.DataArray, dims (time, slot, decision)
     t0 = int(data.decision_time_span[0])
-    x_t0 = x.sel(time=t0)  # shape: (slot, vehicle_type, vehicle_age, decision)
+    x_t0 = x.sel(
+        time=t0
+    )  # shape: (slot, decision) with decision in {Replace_DT, Replace_BET}
 
     actions: list[Decision] = []
     for slot in data.fleet_slots:
-        x_slot = x_t0.sel(slot=slot)
-        # Find the (vehicle_type, vehicle_age, decision) combination with value > 0.5
-        idx = x_slot.values.argmax()
-        flat_idx = np.unravel_index(idx, x_slot.shape)
-        decision_idx = flat_idx[-1]  # last coordinate is 'decision'
-        actions.append(data.decisions[decision_idx])
+        x_slot = x_t0.sel(slot=int(slot))
+        if float(x_slot.sel(decision=Decision.REPLACE_DT)) > 0.5:
+            actions.append(Decision.REPLACE_DT)
+        elif float(x_slot.sel(decision=Decision.REPLACE_BET)) > 0.5:
+            actions.append(Decision.REPLACE_BET)
+        else:
+            actions.append(Decision.KEEP)
 
     return actions
