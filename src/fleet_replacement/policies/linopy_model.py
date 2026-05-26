@@ -570,16 +570,22 @@ def _build_book_value(
 
 def _build_residual_value(
     purchase_price: xr.DataArray,
+    price_new_vehicle: xr.DataArray,
     data: FleetReplacementData,
 ) -> xr.DataArray:
     """
     Market residual (resale) value indexed by (time, slot, vehicle_type, vehicle_age).
 
-    Parameters are read from ``data.params.residual_value``:
-      initial_depreciation   : immediate depreciation fraction on resale.
-      annual_depreciation_rate: annual linear depreciation rate on resale value.
-      market_elasticity      : market-adjustment elasticity (1.0 = fully proportional).
-      floor_fraction         : minimum resale value as a fraction of purchase price.
+      value = purchase_price
+              * ((1 - initial_depreciation) - annual_depreciation_rate * age)
+              * (price_new_vehicle(t, type) / purchase_price) ^ market_elasticity
+
+      floor = floor_fraction * price_new_vehicle(t, type)
+
+    ``price_new_vehicle`` has dims (time, vehicle_type) and represents the
+    current forecast price of a brand-new vehicle of each type.
+
+    Entries where purchase_price == 0 (phantom states) return 0.
     """
     rv = data.params.residual_value
     age = xr.DataArray(
@@ -587,18 +593,24 @@ def _build_residual_value(
         dims=["vehicle_age"],
         coords={"vehicle_age": data.vehicle_ages},
     )
-    P0 = (
-        purchase_price + 1e-6
-    )  # epsilon avoids division by zero for zero-priced entries
-    frac = ((1.0 - rv.initial_depreciation) - rv.annual_depreciation_rate * age).clip(min=0.0)
-    market_adj = (purchase_price / P0) ** rv.market_elasticity
-    value = P0 * frac * market_adj
-    floor_val = rv.floor_fraction * P0
-    return value.where(value >= floor_val, floor_val)
+    frac = ((1.0 - rv.initial_depreciation) - rv.annual_depreciation_rate * age).clip(
+        min=0.0
+    )
+    # Guard against division by zero for phantom states (purchase_price == 0).
+    safe_pp = purchase_price.where(purchase_price > 0, 1.0)
+    value = (
+        purchase_price * frac * (price_new_vehicle / safe_pp) ** rv.market_elasticity
+    )
+    floor_val = rv.floor_fraction * price_new_vehicle
+    result = value.where(value >= floor_val, floor_val)
+    # Zero out phantom entries where no vehicle was purchased.
+    return result.where(purchase_price > 0, 0.0)
 
 
 def _build_sale_coefficient(
-    purchase_price: xr.DataArray, data: FleetReplacementData
+    purchase_price: xr.DataArray,
+    price_new_vehicle: xr.DataArray,
+    data: FleetReplacementData,
 ) -> xr.DataArray:
     """
     Net gain/loss on sale: residual_value - book_value.
@@ -606,9 +618,9 @@ def _build_sale_coefficient(
     Positive when the market resale price exceeds accounting book value; negative
     otherwise.  Shape: (time, slot, vehicle_type, vehicle_age).
     """
-    return _build_residual_value(purchase_price, data) - _build_book_value(
-        purchase_price, data
-    )
+    return _build_residual_value(
+        purchase_price, price_new_vehicle, data
+    ) - _build_book_value(purchase_price, data)
 
 
 def add_objective(
@@ -617,7 +629,6 @@ def add_objective(
     """Add the revenue-minus-costs maximisation objective to the model."""
     p = data.params
     R = model.variables["R"]
-    x = model.variables["x"]
     h = p.horizon
 
     # Discount factors
@@ -652,6 +663,13 @@ def add_objective(
 
     purchase_price = _build_purchase_price(data, forecast)
 
+    # Current new-vehicle price by (time, vehicle_type) — used in the residual value formula.
+    price_new_vehicle = xr.DataArray(
+        np.stack([forecast.purchase_price_DT, forecast.purchase_price_BET], axis=1),
+        dims=["time", "vehicle_type"],
+        coords={"time": data.time_span, "vehicle_type": data.vehicle_types},
+    )
+
     # Mask for vehicles within economic lifetime (age < economic_lifetime)
     within_econ_life_mask = xr.DataArray(
         data.vehicle_ages < p.economic_lifetime,
@@ -659,7 +677,7 @@ def add_objective(
         coords={"vehicle_age": data.vehicle_ages},
     )
 
-    sale_coeff = _build_sale_coefficient(purchase_price, data)
+    sale_coeff = _build_sale_coefficient(purchase_price, price_new_vehicle, data)
 
     obj_revenue = (
         p.income_per_km * p.annual_mileage_km * (discount * productivity * R).sum()
@@ -676,15 +694,37 @@ def add_objective(
     ).sum()
 
     # Sale result: profit/loss realised when a vehicle is replaced mid-horizon.
-    # Summing over replacement decisions collapses the decision dimension.
-    x_replacements = x.sel(decision=[Decision.REPLACE_DT, Decision.REPLACE_BET]).sum(
-        dims="decision"
+    #
+    # At integer solutions the following identity holds:
+    #   x_replacements[t,s,v,a] = R[t,s,v,a] - R[t+1,s,v,a+1]   (a < max_age)
+    #   x_replacements[t,s,v,max_age] = R[t,s,v,max_age]          (forced replacement)
+    # because age a+1 at time t+1 can only arise by keeping vehicle (v,a) — no
+    # replacement path produces a non-zero-age vehicle.  Substituting this eliminates
+    # x from the objective entirely, tightening the LP relaxation.
+    #
+    # Expanding:  sale_coeff * x_rep = sale_coeff * R_current        (Term A, all ages)
+    #                                - sale_coeff * R_next_aged       (Term B, ages 0..max_age-1)
+    discount_dec = discount.sel(time=data.decision_time_span)
+    sale_coeff_dec = sale_coeff.sel(time=data.decision_time_span)
+    # Term A: notional sale proceeds for every vehicle present at a decision time.
+    obj_sale_result = (
+        discount_dec * sale_coeff_dec * R.isel(time=slice(0, h - 1))
+    ).sum()
+    # Term B: subtract proceeds for vehicles that are kept, not sold (ages 0..max_age-1).
+    R_next_aged = R.isel(
+        time=slice(1, None), vehicle_age=slice(1, p.max_age + 1)
+    ).assign_coords(
+        time=data.decision_time_span,
+        vehicle_age=data.vehicle_ages[:-1],
     )
     obj_sale_result = (
-        discount.sel(time=data.decision_time_span)
-        * sale_coeff.sel(time=data.decision_time_span)
-        * x_replacements
-    ).sum()
+        obj_sale_result
+        - (
+            discount_dec
+            * sale_coeff_dec.isel(vehicle_age=slice(0, p.max_age))
+            * R_next_aged
+        ).sum()
+    )
 
     # Terminal year: all vehicles remaining in the fleet are notionally sold.
     T = int(data.time_span[-1])

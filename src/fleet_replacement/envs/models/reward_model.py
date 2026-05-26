@@ -101,7 +101,6 @@ def _sale_result(
 def _residual_value(
     purchase_price, age, is_electric, info_state, config: EnvConfig
 ) -> float:
-    P0 = purchase_price + 0.01  # Avoid zero division
     P_new = info_state["purchase_price_BET" if is_electric else "purchase_price_DT"]
 
     d0 = config.residual_value.initial_depreciation
@@ -110,16 +109,17 @@ def _residual_value(
     # Core linear piece after immediate drop
     frac = max(0.0, (1 - d0) - r * age)
 
-    # Market adjustment elasticity (0=none, 1=proportional)
+    # Market adjustment: scales with how current new-vehicle price compares to
+    # what was paid.  Elasticity 0 = no adjustment, 1 = fully proportional.
     k = config.residual_value.market_elasticity
-    market_adj = (P_new / P0) ** k
+    market_adj = (P_new / purchase_price) ** k if purchase_price > 0 else 0.0
 
-    value = P0 * frac * market_adj
+    value = purchase_price * frac * market_adj
 
-    # Floor at a fraction of purchase price to avoid zero or negative residual values for old vehicles
-    floor_val = config.residual_value.floor_fraction * P0
+    # Floor is a fraction of the current new-vehicle price.
+    floor_val = config.residual_value.floor_fraction * P_new
 
-    return max(value, floor_val)
+    return max(value, floor_val) if purchase_price > 0 else 0.0
 
 
 def _book_value(purchase_price, age, config: EnvConfig) -> float:
