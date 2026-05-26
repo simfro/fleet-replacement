@@ -4,7 +4,7 @@ import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
 import numpy as np
 import seaborn as sns
-from matplotlib.colors import ListedColormap
+from matplotlib.colors import ListedColormap, to_rgb
 
 
 def plot_forecasts(forecast, info_state, params) -> None:
@@ -112,7 +112,11 @@ _FLEET_COLOR_MAP = {"DT": "black", "BET": "green"}
 
 
 def plot_fleet_composition(model) -> None:
-    """Heatmap of vehicle type (colour) and age (annotation) per (fleet slot, planning period)."""
+    """Heatmap of vehicle type and age per (fleet slot, planning period).
+
+    Colour indicates vehicle type; opacity fades with age so newer vehicles
+    appear vivid and older ones more transparent.
+    """
     r_sol = model.solution["R"]
     active_fleet = (
         r_sol.fillna(0)
@@ -122,29 +126,60 @@ def plot_fleet_composition(model) -> None:
         .query("active > 0.5")[["time", "slot", "vehicle_type", "vehicle_age"]]
         .reset_index(drop=True)
     )
-    active_fleet["vtype_code"] = active_fleet["vehicle_type"].map(
-        {vt: i for i, vt in enumerate(_VEHICLE_TYPES)}
-    )
-    pivot_type = active_fleet.pivot(index="slot", columns="time", values="vtype_code")
-    pivot_age = active_fleet.pivot(index="slot", columns="time", values="vehicle_age")
-    cmap_fleet = ListedColormap([_FLEET_COLOR_MAP[vt] for vt in _VEHICLE_TYPES])
+
+    pivot_type = active_fleet.pivot(index="slot", columns="time", values="vehicle_type")
+    pivot_age = active_fleet.pivot(
+        index="slot", columns="time", values="vehicle_age"
+    ).astype(int)
+
+    n_slots, n_times = pivot_type.shape
+    times = pivot_type.columns.tolist()
+    slots = pivot_type.index.tolist()
+
+    # RGB triples derived from the named colors in _FLEET_COLOR_MAP
+    _rgb = {vt: to_rgb(_FLEET_COLOR_MAP[vt]) for vt in _VEHICLE_TYPES}
+
+    # Alpha: age 0 → fully opaque, oldest vehicle → alpha_min (still distinguishable)
+    alpha_min, alpha_max = 0.35, 1.0
+    max_age = max(int(pivot_age.values.max()), 1)
+
+    # Build RGBA image array (rows = fleet slots, columns = planning periods)
+    rgba = np.ones((n_slots, n_times, 4))  # default: opaque white
+    for i in range(n_slots):
+        for j in range(n_times):
+            vtype = str(pivot_type.iloc[i, j])
+            age = int(pivot_age.iloc[i, j])
+            rgba[i, j, :3] = _rgb.get(vtype, (1.0, 1.0, 1.0))
+            rgba[i, j, 3] = alpha_max - (age / max_age) * (alpha_max - alpha_min)
 
     fig, ax = plt.subplots(
-        figsize=(max(6, len(pivot_type.columns) * 0.7), max(3, len(pivot_type) * 0.6))
+        figsize=(max(6, n_times * 0.7), max(3, n_slots * 0.6))
     )
-    sns.heatmap(
-        pivot_type,
-        cmap=cmap_fleet,
-        vmin=-0.5,
-        vmax=len(_VEHICLE_TYPES) - 0.5,
-        linewidths=0.5,
-        linecolor="grey",
-        cbar=False,
-        annot=pivot_age.values,
-        fmt="d",
-        annot_kws={"color": "white", "fontsize": 9},
-        ax=ax,
-    )
+    ax.set_facecolor("white")
+    ax.imshow(rgba, aspect="auto", extent=(-0.5, n_times - 0.5, n_slots - 0.5, -0.5))
+
+    # Age annotations
+    for i in range(n_slots):
+        for j in range(n_times):
+            ax.text(
+                j, i, str(int(pivot_age.iloc[i, j])),
+                ha="center", va="center", color="white", fontsize=9,
+            )
+
+    # Cell grid lines drawn on top of the image
+    for x in np.arange(-0.5, n_times, 1):
+        ax.axvline(x, color="grey", linewidth=0.5)
+    for y in np.arange(-0.5, n_slots, 1):
+        ax.axhline(y, color="grey", linewidth=0.5)
+
+    ax.set_xticks(range(n_times))
+    ax.set_xticklabels(times)
+    ax.set_yticks(range(n_slots))
+    ax.set_yticklabels(slots)
+    ax.set_xlabel("Planning period (t)")
+    ax.set_ylabel("Fleet slot")
+    ax.set_title("Fleet composition over the planning horizon  (cell value = age)")
+
     patches = [
         mpatches.Patch(facecolor=_FLEET_COLOR_MAP[vt], edgecolor="grey", label=vt)
         for vt in _VEHICLE_TYPES
@@ -155,8 +190,5 @@ def plot_fleet_composition(model) -> None:
         loc="upper left",
         title="Vehicle type",
     )
-    ax.set_title("Fleet composition over the planning horizon  (cell value = age)")
-    ax.set_xlabel("Planning period (t)")
-    ax.set_ylabel("Fleet slot")
     plt.tight_layout()
     plt.show()
