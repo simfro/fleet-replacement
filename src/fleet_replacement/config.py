@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -74,6 +74,30 @@ class ResidualValueConfig:
 
 
 @dataclass(frozen=True)
+class ForecastRatesConfig:
+    """Annual growth rates used by LookaheadAgent to project prices and productivity.
+
+    All values are fractional (e.g. ``0.02`` = 2 % per year).  Defaults to
+    flat forecasts (0.0), meaning the agent assumes current observed values
+    remain constant over the planning horizon.
+    """
+
+    diesel_price_growth: float = 0.0
+    electricity_price_growth: float = 0.0
+    purchase_price_growth_DT: float = 0.0
+    purchase_price_growth_BET: float = 0.0
+    BET_productivity_growth: float = 0.0
+
+
+@dataclass(frozen=True)
+class LookaheadConfig:
+    """Configuration for the deterministic lookahead planning model."""
+
+    horizon: int
+    forecast_rates: ForecastRatesConfig = field(default_factory=ForecastRatesConfig)
+
+
+@dataclass(frozen=True)
 class EnvConfig:
     simulation_period: SimulationPeriodConfig
     diesel_price: StochasticPriceConfig
@@ -85,6 +109,9 @@ class EnvConfig:
     economic: EconomicConfig
     vehicle_management: VehicleManagementConfig
     residual_value: ResidualValueConfig
+    lookahead: LookaheadConfig = field(
+        default_factory=lambda: LookaheadConfig(horizon=10)
+    )
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> EnvConfig:
@@ -159,7 +186,28 @@ class EnvConfig:
                 market_elasticity=float(residual_value["market_elasticity"]),
                 floor_fraction=float(residual_value["floor_fraction"]),
             ),
+            lookahead=_parse_lookahead(data.get("lookahead")),
         )
+
+
+def _parse_lookahead(section: dict[str, Any] | None) -> LookaheadConfig:
+    """Parse the optional ``lookahead`` section; returns defaults when absent."""
+    if not isinstance(section, dict):
+        return LookaheadConfig(horizon=10)
+    rates_raw = section.get("forecast_rates", {})
+    rates = ForecastRatesConfig(
+        diesel_price_growth=float(rates_raw.get("diesel_price_growth", 0.0)),
+        electricity_price_growth=float(rates_raw.get("electricity_price_growth", 0.0)),
+        purchase_price_growth_DT=float(rates_raw.get("purchase_price_growth_DT", 0.0)),
+        purchase_price_growth_BET=float(
+            rates_raw.get("purchase_price_growth_BET", 0.0)
+        ),
+        BET_productivity_growth=float(rates_raw.get("BET_productivity_growth", 0.0)),
+    )
+    return LookaheadConfig(
+        horizon=int(section["horizon"]),
+        forecast_rates=rates,
+    )
 
 
 def load_env_config(config_path: str | Path) -> EnvConfig:
