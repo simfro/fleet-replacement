@@ -34,7 +34,7 @@ import linopy
 import numpy as np
 import xarray as xr
 
-from fleet_replacement.config import EnvConfig
+from fleet_replacement.config import EnvConfig, ResidualValueConfig
 
 # ---------------------------------------------------------------------------
 # Domain enumerations
@@ -112,6 +112,8 @@ class ModelParams:
     economic_lifetime: int
     # Discount factor
     gamma: float
+    # Residual value parameters
+    residual_value: ResidualValueConfig
 
     @classmethod
     def from_env_config(cls, config: EnvConfig, horizon: int) -> ModelParams:
@@ -129,6 +131,7 @@ class ModelParams:
             loan_fraction=config.economic.loan_fraction,
             economic_lifetime=config.economic.economic_lifetime,
             gamma=config.economic.discount_factor,
+            residual_value=config.residual_value,
         )
 
 
@@ -549,12 +552,72 @@ def _build_purchase_price(
     )
 
 
+def _build_book_value(
+    purchase_price: xr.DataArray, data: FleetReplacementData
+) -> xr.DataArray:
+    """
+    Accounting book value indexed by (time, slot, vehicle_type, vehicle_age).
+
+    book_value = max(0, purchase_price * (1 - age / economic_lifetime))
+    """
+    age = xr.DataArray(
+        data.vehicle_ages,
+        dims=["vehicle_age"],
+        coords={"vehicle_age": data.vehicle_ages},
+    )
+    return (purchase_price * (1.0 - age / data.params.economic_lifetime)).clip(min=0.0)
+
+
+def _build_residual_value(
+    purchase_price: xr.DataArray,
+    data: FleetReplacementData,
+) -> xr.DataArray:
+    """
+    Market residual (resale) value indexed by (time, slot, vehicle_type, vehicle_age).
+
+    Parameters are read from ``data.params.residual_value``:
+      initial_depreciation   : immediate depreciation fraction on resale.
+      annual_depreciation_rate: annual linear depreciation rate on resale value.
+      market_elasticity      : market-adjustment elasticity (1.0 = fully proportional).
+      floor_fraction         : minimum resale value as a fraction of purchase price.
+    """
+    rv = data.params.residual_value
+    age = xr.DataArray(
+        data.vehicle_ages,
+        dims=["vehicle_age"],
+        coords={"vehicle_age": data.vehicle_ages},
+    )
+    P0 = (
+        purchase_price + 1e-6
+    )  # epsilon avoids division by zero for zero-priced entries
+    frac = ((1.0 - rv.initial_depreciation) - rv.annual_depreciation_rate * age).clip(min=0.0)
+    market_adj = (purchase_price / P0) ** rv.market_elasticity
+    value = P0 * frac * market_adj
+    floor_val = rv.floor_fraction * P0
+    return value.where(value >= floor_val, floor_val)
+
+
+def _build_sale_coefficient(
+    purchase_price: xr.DataArray, data: FleetReplacementData
+) -> xr.DataArray:
+    """
+    Net gain/loss on sale: residual_value - book_value.
+
+    Positive when the market resale price exceeds accounting book value; negative
+    otherwise.  Shape: (time, slot, vehicle_type, vehicle_age).
+    """
+    return _build_residual_value(purchase_price, data) - _build_book_value(
+        purchase_price, data
+    )
+
+
 def add_objective(
     model: linopy.Model, data: FleetReplacementData, forecast: Forecast
 ) -> None:
     """Add the revenue-minus-costs maximisation objective to the model."""
     p = data.params
     R = model.variables["R"]
+    x = model.variables["x"]
     h = p.horizon
 
     # Discount factors
@@ -589,6 +652,15 @@ def add_objective(
 
     purchase_price = _build_purchase_price(data, forecast)
 
+    # Mask for vehicles within economic lifetime (age < economic_lifetime)
+    within_econ_life_mask = xr.DataArray(
+        data.vehicle_ages < p.economic_lifetime,
+        dims=["vehicle_age"],
+        coords={"vehicle_age": data.vehicle_ages},
+    )
+
+    sale_coeff = _build_sale_coefficient(purchase_price, data)
+
     obj_revenue = (
         p.income_per_km * p.annual_mileage_km * (discount * productivity * R).sum()
     )
@@ -599,8 +671,34 @@ def add_objective(
     obj_interest_cost = (
         p.interest_rate * p.loan_fraction * (discount * purchase_price * R).sum()
     )
+    obj_depreciation_cost = (1 / p.economic_lifetime) * (
+        discount * within_econ_life_mask * purchase_price * R
+    ).sum()
 
-    model.add_objective(obj_revenue - obj_energy_cost - obj_interest_cost, sense="max")
+    # Sale result: profit/loss realised when a vehicle is replaced mid-horizon.
+    # Summing over replacement decisions collapses the decision dimension.
+    x_replacements = x.sel(decision=[Decision.REPLACE_DT, Decision.REPLACE_BET]).sum(
+        dims="decision"
+    )
+    obj_sale_result = (
+        discount.sel(time=data.decision_time_span)
+        * sale_coeff.sel(time=data.decision_time_span)
+        * x_replacements
+    ).sum()
+
+    # Terminal year: all vehicles remaining in the fleet are notionally sold.
+    T = int(data.time_span[-1])
+    obj_terminal_sale = (p.gamma**T * sale_coeff.sel(time=T) * R.sel(time=T)).sum()
+
+    model.add_objective(
+        obj_revenue
+        - obj_energy_cost
+        - obj_interest_cost
+        - obj_depreciation_cost
+        + obj_sale_result
+        + obj_terminal_sale,
+        sense="max",
+    )
 
 
 # ---------------------------------------------------------------------------
