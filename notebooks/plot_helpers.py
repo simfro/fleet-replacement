@@ -1,10 +1,12 @@
 """Plotting helpers for the linopy fleet replacement notebook."""
 
+import matplotlib.lines as mlines
 import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
 import numpy as np
 import seaborn as sns
 from matplotlib.colors import ListedColormap, to_rgb
+from fleet_replacement.policies.lookahead_model import make_forecast, InfoState
 
 
 def plot_forecasts(forecast, info_state, params) -> None:
@@ -278,6 +280,163 @@ def plot_episode_fleet_composition(record) -> None:
         bbox_to_anchor=(1.01, 1),
         loc="upper left",
         title="Vehicle type",
+    )
+    plt.tight_layout()
+    plt.show()
+
+
+def plot_episode_information_state(record, agent, forecast_step: int = 1) -> None:
+    """1x3 figure: purchase prices, energy prices (twin y), BET productivity.
+
+    Thick lines show the realised information-state trajectory from *record*.
+    Thin semi-transparent lines show the agent's linear forecast computed from
+    every ``forecast_step``-th observation, illustrating how the agent's beliefs
+    about future prices evolved over the episode.
+
+    Parameters
+    ----------
+    record : EpisodeRecord
+        Episode history collected by ``EpisodeRecorder``.
+    agent : LookaheadAgent
+        The agent used during the episode; provides ``horizon``,
+        ``model_params.BET_productivity_max``, and ``forecast_params``.
+    forecast_step : int
+        Draw a forecast fan starting every this many steps (default 1 = every step).
+    """
+    years = record.years
+    n_steps = len(years)
+    horizon = agent.horizon
+
+    # Reconstruct forecasts at every forecast_step-th observed info state.
+    _fc_kw = dict(alpha=0.2, linewidth=0.9, zorder=1)
+    forecasts = []
+    for i in range(0, n_steps, forecast_step):
+        s = record.steps[i]
+        info_state = InfoState(
+            year=int(s.year),
+            energy_price_diesel=float(s.energy_price_diesel),
+            energy_price_electricity=float(s.energy_price_electricity),
+            purchase_price_DT=float(s.purchase_price_DT),
+            purchase_price_BET=float(s.purchase_price_BET),
+            productivity_BET=float(s.productivity_BET),
+        )
+        fc = make_forecast(
+            info_state,
+            horizon,
+            agent.model_params.BET_productivity_max,
+            agent.forecast_params,
+        )
+        fc_years = s.year + np.arange(horizon)
+        forecasts.append((fc_years, fc))
+
+    purchase_dt = record.purchase_prices_DT / 1e6
+    purchase_bet = record.purchase_prices_BET / 1e6
+    energy_diesel = record.energy_prices_diesel
+    energy_elec = record.energy_prices_electricity
+    productivity = record.productivities_BET
+
+    fig, axes = plt.subplots(1, 3, figsize=(14, 4))
+    _proxy_label = f"Forecast (every {forecast_step} steps)"
+
+    # --- Panel 0: Purchase prices ---
+    ax = axes[0]
+    for fc_years, fc in forecasts:
+        ax.plot(fc_years, fc.purchase_price_DT / 1e6, color="tab:gray", **_fc_kw)
+        ax.plot(fc_years, fc.purchase_price_BET / 1e6, color="tab:green", **_fc_kw)
+    (l_dt,) = ax.plot(
+        years,
+        purchase_dt,
+        color="tab:gray",
+        linewidth=2,
+        marker="o",
+        markersize=3,
+        zorder=3,
+        label="DT",
+    )
+    (l_bet,) = ax.plot(
+        years,
+        purchase_bet,
+        color="tab:green",
+        linewidth=2,
+        marker="o",
+        markersize=3,
+        zorder=3,
+        label="BET",
+    )
+    fc_proxy = mlines.Line2D(
+        [], [], color="grey", linewidth=0.9, alpha=0.7, label=_proxy_label
+    )
+    ax.legend(handles=[l_dt, l_bet, fc_proxy])
+    ax.set_title("Purchase price")
+    ax.set_ylabel("MSEK")
+    ax.set_xlabel("Year")
+    ax.grid(True, alpha=0.3)
+
+    # --- Panel 1: Energy prices (dual y-axis) ---
+    ax_d = axes[1]
+    ax_e = ax_d.twinx()
+    for fc_years, fc in forecasts:
+        ax_d.plot(fc_years, fc.energy_price_diesel, color="tab:orange", **_fc_kw)
+        ax_e.plot(fc_years, fc.energy_price_electricity, color="tab:purple", **_fc_kw)
+    (l_diesel,) = ax_d.plot(
+        years,
+        energy_diesel,
+        color="tab:orange",
+        linewidth=2,
+        marker="o",
+        markersize=3,
+        zorder=3,
+        label="Diesel",
+    )
+    (l_elec,) = ax_e.plot(
+        years,
+        energy_elec,
+        color="tab:purple",
+        linewidth=2,
+        marker="o",
+        markersize=3,
+        zorder=3,
+        label="Electricity",
+    )
+    ax_d.set_ylabel("SEK / litre  (Diesel)", color="tab:orange")
+    ax_e.set_ylabel("SEK / kWh  (Electricity)", color="tab:purple")
+    ax_d.tick_params(axis="y", labelcolor="tab:orange")
+    ax_e.tick_params(axis="y", labelcolor="tab:purple")
+    fc_proxy2 = mlines.Line2D(
+        [], [], color="grey", linewidth=0.9, alpha=0.7, label=_proxy_label
+    )
+    ax_d.legend(handles=[l_diesel, l_elec, fc_proxy2])
+    ax_d.set_title("Energy price")
+    ax_d.set_xlabel("Year")
+    ax_d.grid(True, alpha=0.3)
+
+    # --- Panel 2: BET productivity ---
+    ax = axes[2]
+    for fc_years, fc in forecasts:
+        ax.plot(fc_years, fc.productivity_BET, color="tab:red", **_fc_kw)
+    (l_prod,) = ax.plot(
+        years,
+        productivity,
+        color="tab:red",
+        linewidth=2,
+        marker="o",
+        markersize=3,
+        zorder=3,
+        label="Actual",
+    )
+    fc_proxy3 = mlines.Line2D(
+        [], [], color="tab:red", linewidth=0.9, alpha=0.7, label=_proxy_label
+    )
+    ax.legend(handles=[l_prod, fc_proxy3])
+    ax.set_title("BET productivity (relative to DT = 1)")
+    ax.set_ylabel("Fraction")
+    ax.set_ylim(0, 1.05)
+    ax.set_xlabel("Year")
+    ax.grid(True, alpha=0.3)
+
+    fig.suptitle(
+        f"Information state evolution  (seed={record.seed})",
+        fontsize=13,
     )
     plt.tight_layout()
     plt.show()
