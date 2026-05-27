@@ -202,13 +202,13 @@ class FleetReplacementEnv(gym.Env):
         }
 
     def step(self, action):
-        self._update_fleet(action)
-        self._update_info_state()
-
         self._reward = compute_reward(
             self._fleet, self._info_state, action, self.config
         )
         reward = self._reward["total_reward"]
+
+        self._update_fleet(action)
+        self._update_info_state()
 
         observation = self._get_obs()
         info = self._get_info()
