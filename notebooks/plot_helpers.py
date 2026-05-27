@@ -152,9 +152,7 @@ def plot_fleet_composition(model) -> None:
             rgba[i, j, :3] = _rgb.get(vtype, (1.0, 1.0, 1.0))
             rgba[i, j, 3] = alpha_max - (age / max_age) * (alpha_max - alpha_min)
 
-    fig, ax = plt.subplots(
-        figsize=(max(6, n_times * 0.7), max(3, n_slots * 0.6))
-    )
+    fig, ax = plt.subplots(figsize=(max(6, n_times * 0.7), max(3, n_slots * 0.6)))
     ax.set_facecolor("white")
     ax.imshow(rgba, aspect="auto", extent=(-0.5, n_times - 0.5, n_slots - 0.5, -0.5))
 
@@ -162,8 +160,13 @@ def plot_fleet_composition(model) -> None:
     for i in range(n_slots):
         for j in range(n_times):
             ax.text(
-                j, i, str(int(pivot_age.iloc[i, j])),
-                ha="center", va="center", color="white", fontsize=9,
+                j,
+                i,
+                str(int(pivot_age.iloc[i, j])),
+                ha="center",
+                va="center",
+                color="white",
+                fontsize=9,
             )
 
     # Cell grid lines drawn on top of the image
@@ -179,6 +182,92 @@ def plot_fleet_composition(model) -> None:
     ax.set_xlabel("Planning period (t)")
     ax.set_ylabel("Fleet slot")
     ax.set_title("Fleet composition over the planning horizon  (cell value = age)")
+
+    patches = [
+        mpatches.Patch(facecolor=_FLEET_COLOR_MAP[vt], edgecolor="grey", label=vt)
+        for vt in _VEHICLE_TYPES
+    ]
+    ax.legend(
+        handles=patches,
+        bbox_to_anchor=(1.01, 1),
+        loc="upper left",
+        title="Vehicle type",
+    )
+    plt.tight_layout()
+    plt.show()
+
+
+def plot_episode_fleet_composition(record) -> None:
+    """Heatmap of vehicle type and age per (fleet slot, simulation year).
+
+    Equivalent to :func:`plot_fleet_composition` but takes an
+    ``EpisodeRecord`` from the stochastic simulation instead of a linopy
+    model solution.  Colour indicates vehicle type (DT = dark, BET = green);
+    opacity fades with age so newer vehicles appear vivid.  The cell text
+    shows the vehicle age.
+
+    Parameters
+    ----------
+    record : EpisodeRecord
+        Episode history collected by ``EpisodeRecorder``.
+    """
+    # (n_steps, fleet_size) — observations at the START of each step
+    is_electric = record.fleet_is_electric  # 0 = DT, 1 = BET
+    ages = record.fleet_ages  # integer vehicle ages
+    years = record.years  # simulation year per step
+
+    n_steps, n_slots = is_electric.shape
+
+    _rgb = {vt: to_rgb(_FLEET_COLOR_MAP[vt]) for vt in _VEHICLE_TYPES}
+    alpha_min, alpha_max = 0.35, 1.0
+    max_age = max(int(ages.max()), 1)
+
+    # Build RGBA image: rows = fleet slots, columns = simulation years
+    rgba = np.ones((n_slots, n_steps, 4))
+    for j in range(n_steps):
+        for i in range(n_slots):
+            vtype = "BET" if int(is_electric[j, i]) == 1 else "DT"
+            age = int(ages[j, i])
+            rgba[i, j, :3] = _rgb[vtype]
+            rgba[i, j, 3] = alpha_max - (age / max_age) * (alpha_max - alpha_min)
+
+    # Thin out x-tick labels when the episode is long so they don't overlap.
+    tick_step = max(1, n_steps // 20)
+
+    fig, ax = plt.subplots(figsize=(max(8, n_steps * 0.35), max(3, n_slots * 0.6)))
+    ax.set_facecolor("white")
+    ax.imshow(rgba, aspect="auto", extent=(-0.5, n_steps - 0.5, n_slots - 0.5, -0.5))
+
+    # Age annotations (skip when there are many columns to keep the chart readable)
+    if n_steps <= 40:
+        for j in range(n_steps):
+            for i in range(n_slots):
+                ax.text(
+                    j,
+                    i,
+                    str(int(ages[j, i])),
+                    ha="center",
+                    va="center",
+                    color="white",
+                    fontsize=8,
+                )
+
+    # Cell grid lines
+    for x in np.arange(-0.5, n_steps, 1):
+        ax.axvline(x, color="grey", linewidth=0.5)
+    for y in np.arange(-0.5, n_slots, 1):
+        ax.axhline(y, color="grey", linewidth=0.5)
+
+    ax.set_xticks(range(0, n_steps, tick_step))
+    ax.set_xticklabels(years[::tick_step], rotation=45, ha="right")
+    ax.set_yticks(range(n_slots))
+    ax.set_yticklabels(range(n_slots))
+    ax.set_xlabel("Simulation year")
+    ax.set_ylabel("Fleet slot")
+    ax.set_title(
+        f"Fleet composition over the episode  (seed={record.seed}, "
+        f"cell value = age)",
+    )
 
     patches = [
         mpatches.Patch(facecolor=_FLEET_COLOR_MAP[vt], edgecolor="grey", label=vt)

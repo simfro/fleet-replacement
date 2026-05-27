@@ -27,6 +27,7 @@ if str(SRC_PATH) not in sys.path:
 
 from fleet_replacement.config import load_env_config  # noqa: E402
 from fleet_replacement.envs.fleet_replacement import FleetReplacementEnv  # noqa: E402
+from fleet_replacement.episode import EpisodeRecord, EpisodeRecorder  # noqa: E402
 from fleet_replacement.policies import LookaheadAgent  # noqa: E402
 
 # ---------------------------------------------------------------------------
@@ -55,7 +56,7 @@ def _print_header(title: str, width: int = 60) -> None:
     print(f"{'-' * width}")
 
 
-def _print_initial_state(obs: dict, config) -> None:
+def _print_initial_state(obs: dict) -> None:
     fleet = obs["fleet"]
     info = obs["information_state"]
     _print_header("Initial fleet state")
@@ -136,14 +137,15 @@ def _print_step(
         print("\n  [Episode terminated]")
 
 
-def _print_episode_summary(total_reward: float, obs: dict) -> None:
+def _print_episode_summary(record: EpisodeRecord, final_obs: dict) -> None:
     _print_header("Episode summary")
-    fleet = obs["fleet"]
+    fleet = final_obs["fleet"]
     is_electric = fleet["is_electric"]
     ages = fleet["age"]
     n = len(is_electric)
     n_elec = int(np.sum(is_electric))
-    print(f"\n  Total reward     : {total_reward:>16,.2f}")
+    print(f"\n  Total reward     : {record.total_reward:>16,.2f}")
+    print(f"  Steps            : {record.n_steps}")
     print(f"  Final fleet size : {n}")
     print(f"  Diesel trucks    : {n - n_elec}")
     print(f"  Electric trucks  : {n_elec}")
@@ -156,12 +158,17 @@ def _print_episode_summary(total_reward: float, obs: dict) -> None:
 # ---------------------------------------------------------------------------
 
 
-def run_episode(env: FleetReplacementEnv, agent: LookaheadAgent, seed: int) -> float:
-    """Run one full episode and return the total undiscounted reward."""
-    obs, _ = env.reset(seed=seed)
-    _print_initial_state(obs, env.config)
+def run_episode(
+    env: EpisodeRecorder, agent: LookaheadAgent, seed: int
+) -> EpisodeRecord:
+    """Run one full episode and return an :class:`EpisodeRecord`.
 
-    total_reward = 0.0
+    The :class:`EpisodeRecorder` wrapper handles all history collection;
+    this function only drives the loop and formats output.
+    """
+    obs, _ = env.reset(seed=seed)
+    _print_initial_state(obs)
+
     step = 0
 
     while True:
@@ -178,10 +185,9 @@ def run_episode(env: FleetReplacementEnv, agent: LookaheadAgent, seed: int) -> f
         except RuntimeError as exc:
             print(f"\n[ERROR] Solver failed at step {step}: {exc}")
             print("Falling back to 'Keep all' for this step.")
-            action = np.zeros(env.fleet_size, dtype=np.int64)
+            action = np.zeros(len(obs["fleet"]["is_electric"]), dtype=np.int64)
 
         obs, reward, terminated, truncated, info = env.step(action)
-        total_reward += float(reward)
 
         _print_step(
             step=step,
@@ -196,8 +202,9 @@ def run_episode(env: FleetReplacementEnv, agent: LookaheadAgent, seed: int) -> f
         if terminated or truncated:
             break
 
-    _print_episode_summary(total_reward, obs)
-    return total_reward
+    record = env.episode_record
+    _print_episode_summary(record, obs)
+    return record
 
 
 # ---------------------------------------------------------------------------
@@ -221,6 +228,14 @@ def _parse_args() -> argparse.Namespace:
         type=int,
         default=42,
         help="Random seed for the environment.",
+    )
+    parser.add_argument(
+        "--save",
+        type=str,
+        default=None,
+        metavar="PATH",
+        help="If given, save the EpisodeRecord to this path (pickle). "
+        "Parent directories are created automatically.",
     )
     return parser.parse_args()
 
@@ -247,10 +262,14 @@ def main() -> None:
     print(f"  BET purchase growth    : {fc.purchase_price_growth_BET:+.3f}")
     print(f"  BET productivity growth: {fc.BET_productivity_growth:+.3f}")
 
-    env = FleetReplacementEnv(config=config)
+    env = EpisodeRecorder(FleetReplacementEnv(config=config))
     agent = LookaheadAgent(config)
 
-    run_episode(env, agent, seed=args.seed)
+    record = run_episode(env, agent, seed=args.seed)
+
+    if args.save:
+        record.save(args.save)
+        print(f"Episode record saved to: {args.save}")
 
 
 if __name__ == "__main__":
