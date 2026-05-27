@@ -167,12 +167,18 @@ class FleetReplacementEnv(gym.Env):
     def _initial_fleet(self, fleet_size: int):
         """Build the deterministic starting fleet state for an episode.
 
-        All vehicles start as diesel trucks with age 0 and purchase prices set to
-        the configured initial DT purchase price.
+        Vehicles are initialised with staggered ages so the fleet is not
+        artificially synchronised: slot ``i`` starts at age
+        ``i % (max_age + 1)``.  All vehicles start as diesel trucks with
+        purchase prices set to the configured initial DT purchase price.
         """
+        ages = np.array(
+            [i % (self.max_vehicle_age + 1) for i in range(fleet_size)],
+            dtype=np.int32,
+        )
         return {
             "is_electric": np.zeros(fleet_size, dtype=np.int8),
-            "age": np.zeros(fleet_size, dtype=np.int32),
+            "age": ages,
             "purchase_price": np.full(
                 fleet_size,
                 self.config.DT_price.initial_price,
