@@ -503,6 +503,25 @@ def add_constraints(model: linopy.Model, data: FleetReplacementData) -> None:
     )
 
 
+def _update_initial_fleet_constraints(
+    model: linopy.Model, data: FleetReplacementData
+) -> None:
+    """Update the LHS of the per-slot initial-fleet equality constraints.
+
+    Uses linopy's documented ``con.lhs = new_expr`` manipulation API to
+    re-point each ``initial_fleet_slot_s`` constraint at the vehicle that
+    now occupies slot *s*, without rebuilding the model.
+    """
+    R = model.variables["R"]
+    for slot_idx, vehicle in enumerate(data.initial_fleet):
+        model.constraints[f"initial_fleet_slot_{slot_idx}"].lhs = R.sel(
+            time=0,
+            slot=slot_idx,
+            vehicle_type=vehicle.vehicle_type,
+            vehicle_age=vehicle.age,
+        )
+
+
 # ---------------------------------------------------------------------------
 # Objective
 # ---------------------------------------------------------------------------
@@ -629,10 +648,10 @@ def _build_sale_coefficient(
     ) - _build_book_value(purchase_price, data)
 
 
-def add_objective(
+def _build_objective_expr(
     model: linopy.Model, data: FleetReplacementData, forecast: Forecast
-) -> None:
-    """Add the revenue-minus-costs maximisation objective to the model."""
+) -> linopy.LinearExpression:
+    """Build the maximisation objective expression without modifying the model."""
     p = data.params
     R = model.variables["R"]
     h = p.horizon
@@ -736,14 +755,35 @@ def add_objective(
     T = int(data.time_span[-1])
     obj_terminal_sale = (p.gamma**T * sale_coeff.sel(time=T) * R.sel(time=T)).sum()
 
-    model.add_objective(
+    return (
         obj_revenue
         - obj_energy_cost
         - obj_interest_cost
         - obj_depreciation_cost
         + obj_sale_result
-        + obj_terminal_sale,
-        sense="max",
+        + obj_terminal_sale
+    )
+
+
+def add_objective(
+    model: linopy.Model, data: FleetReplacementData, forecast: Forecast
+) -> None:
+    """Add the revenue-minus-costs maximisation objective to the model."""
+    model.add_objective(_build_objective_expr(model, data, forecast), sense="max")
+
+
+def update_model(
+    model: linopy.Model, data: FleetReplacementData, forecast: Forecast
+) -> None:
+    """Update a cached model in-place for a new timestep.
+
+    Resets the t=0 initial fleet lower bounds to reflect the new fleet state,
+    and replaces the objective with new forecast coefficients.
+    All structural constraints are unchanged, avoiding full model reconstruction.
+    """
+    _update_initial_fleet_constraints(model, data)
+    model.add_objective(
+        _build_objective_expr(model, data, forecast), sense="max", overwrite=True
     )
 
 

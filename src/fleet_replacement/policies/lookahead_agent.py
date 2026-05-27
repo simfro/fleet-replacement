@@ -39,6 +39,7 @@ from fleet_replacement.policies.lookahead_model import (
     make_forecast,
     ModelParams,
     solve,
+    update_model,
 )
 
 # ---------------------------------------------------------------------------
@@ -101,6 +102,7 @@ class LookaheadAgent:
             purchase_price_growth_BET=fc.purchase_price_growth_BET,
             BET_productivity_growth=fc.BET_productivity_growth,
         )
+        self._model = None  # cached linopy.Model, built on first call to select_action
 
     # ------------------------------------------------------------------
     # Properties
@@ -154,7 +156,10 @@ class LookaheadAgent:
             self._model_params.BET_productivity_max,
             self._forecast_params,
         )
-        model = build_model(data, forecast)
-        solve(model)
-        decisions = best_immediate_actions(model, data)
+        if self._model is None:
+            self._model = build_model(data, forecast)
+        else:
+            update_model(self._model, data, forecast)
+        solve(self._model)
+        decisions = best_immediate_actions(self._model, data)
         return _decisions_to_action(decisions)
