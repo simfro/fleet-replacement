@@ -792,14 +792,24 @@ def update_model(
 # ---------------------------------------------------------------------------
 
 
-def solve(model: linopy.Model) -> linopy.Model:
+def solve(model: linopy.Model, verbose: bool = False) -> linopy.Model:
     """
     Solve a pre-built fleet replacement model.
 
     Returns the solved model. Raises ``RuntimeError`` if no optimal solution
     is found.
+
+    Parameters
+    ----------
+    verbose : bool
+        If ``False`` (default), suppresses HiGHS console output and linopy
+        coordinate warnings.  Set to ``True`` to see full solver output.
     """
-    status, condition = model.solve(solver_name="highs")
+    import warnings
+
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", category=UserWarning, module="linopy")
+        status, condition = model.solve(solver_name="highs", output_flag=verbose)
     if condition != "optimal":
         raise RuntimeError(
             f"Model did not solve to optimality. "

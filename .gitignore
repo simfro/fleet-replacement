@@ -173,4 +173,9 @@ poetry.toml
 # LSP config files
 pyrightconfig.json
 
+# Experiment results — auto-generated batch outputs are excluded.
+# Place results worth keeping in results/important/ for version control.
+results/*
+!results/important/
+
 # End of https://www.toptal.com/developers/gitignore/api/python
