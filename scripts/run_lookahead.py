@@ -259,7 +259,7 @@ def main() -> None:
     print(f"  Diesel price growth    : {fc.diesel_price_growth:+.3f}")
     print(f"  Electricity price growth: {fc.electricity_price_growth:+.3f}")
     print(f"  DT purchase growth     : {fc.purchase_price_growth_DT:+.3f}")
-    print(f"  BET purchase growth    : {fc.purchase_price_growth_BET:+.3f}")
+    print(f"  BET gap closure rate   : {fc.BET_price_gap_closure_rate:+.3f}")
     print(f"  BET productivity growth: {fc.BET_productivity_growth:+.3f}")
 
     env = EpisodeRecorder(FleetReplacementEnv(config=config))
