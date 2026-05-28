@@ -198,7 +198,10 @@ class FleetReplacementEnv(gym.Env):
             "energy_price_electricity": self.config.electricity_price.initial_price,
             "purchase_price_DT": self.config.DT_price.initial_price,
             "purchase_price_BET": self.config.BET_price.initial_price,
-            "productivity_BET": self.config.BET_productivity.start,
+            "productivity_BET": BET_productivity_logistic(
+                year=self.start_year,
+                config=self.config.BET_productivity,
+            ),
         }
 
     def step(self, action):
