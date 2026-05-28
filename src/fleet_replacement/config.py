@@ -77,17 +77,20 @@ class ResidualValueConfig:
 
 @dataclass(frozen=True)
 class ForecastRatesConfig:
-    """Annual growth rates used by LookaheadAgent to project prices and productivity.
+    """Growth rates and convergence beliefs used by LookaheadAgent.
 
     All values are fractional (e.g. ``0.02`` = 2 % per year).  Defaults to
-    flat forecasts (0.0), meaning the agent assumes current observed values
-    remain constant over the planning horizon.
+    0.0, meaning the agent assumes current observed values remain constant.
+
+    ``BET_price_gap_closure_rate`` is the fraction of the BET–DT purchase-price
+    gap the agent believes will close each year.  E.g. ``0.05`` implies parity
+    after 20 years.  Set to ``0.0`` to keep the gap constant.
     """
 
     diesel_price_growth: float = 0.0
     electricity_price_growth: float = 0.0
     purchase_price_growth_DT: float = 0.0
-    purchase_price_growth_BET: float = 0.0
+    BET_price_gap_closure_rate: float = 0.0
     BET_productivity_growth: float = 0.0
 
 
@@ -203,8 +206,8 @@ def _parse_lookahead(section: dict[str, Any] | None) -> LookaheadConfig:
         diesel_price_growth=float(rates_raw.get("diesel_price_growth", 0.0)),
         electricity_price_growth=float(rates_raw.get("electricity_price_growth", 0.0)),
         purchase_price_growth_DT=float(rates_raw.get("purchase_price_growth_DT", 0.0)),
-        purchase_price_growth_BET=float(
-            rates_raw.get("purchase_price_growth_BET", 0.0)
+        BET_price_gap_closure_rate=float(
+            rates_raw.get("BET_price_gap_closure_rate", 0.0)
         ),
         BET_productivity_growth=float(rates_raw.get("BET_productivity_growth", 0.0)),
     )

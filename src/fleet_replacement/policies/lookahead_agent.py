@@ -99,7 +99,7 @@ class LookaheadAgent:
             diesel_price_growth=fc.diesel_price_growth,
             electricity_price_growth=fc.electricity_price_growth,
             purchase_price_growth_DT=fc.purchase_price_growth_DT,
-            purchase_price_growth_BET=fc.purchase_price_growth_BET,
+            BET_price_gap_closure_rate=fc.BET_price_gap_closure_rate,
             BET_productivity_growth=fc.BET_productivity_growth,
         )
         self._model = None  # cached linopy.Model, built on first call to select_action

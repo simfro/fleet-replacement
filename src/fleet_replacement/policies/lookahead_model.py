@@ -138,16 +138,21 @@ class ModelParams:
 @dataclass(frozen=True)
 class ForecastParams:
     """
-    Linear growth rates for constructing price and productivity forecasts.
+    Growth rates and convergence beliefs for constructing price and productivity forecasts.
 
-    All rates are fractional annual growth (e.g. ``0.02`` = 2 % per year).
-    Defaults to zero growth (flat forecast from current observed values).
+    All rates are fractional (e.g. ``0.02`` = 2 % per year).  Defaults to zero,
+    meaning the agent assumes current observed values remain constant.
+
+    ``BET_price_gap_closure_rate`` expresses how quickly the agent believes the
+    BET–DT purchase-price gap will close.  A rate of ``r`` means the gap shrinks
+    by fraction ``r`` each year; full parity is reached after ``1/r`` years.
+    Setting it to ``0.0`` (default) keeps the gap constant.
     """
 
     diesel_price_growth: float = 0.0
     electricity_price_growth: float = 0.0
     purchase_price_growth_DT: float = 0.0
-    purchase_price_growth_BET: float = 0.0
+    BET_price_gap_closure_rate: float = 0.0
     BET_productivity_growth: float = 0.0
 
 
@@ -282,11 +287,25 @@ def forecast_purchase_price_BET(
     horizon: int,
     forecast_params: ForecastParams,
 ) -> np.ndarray:
-    """Linear forecast for BET purchase price."""
+    """Gap-convergence linear forecast for BET purchase price.
+
+    The BET price equals the DT price forecast plus a residual gap that shrinks
+    linearly each period at ``BET_price_gap_closure_rate``::
+
+        DT(t)  = DT(0) * (1 + purchase_price_growth_DT * t)
+        gap(t) = max(0, gap_0 * (1 - BET_price_gap_closure_rate * t))
+        BET(t) = DT(t) + gap(t)
+
+    where ``gap_0 = BET(0) - DT(0)``.  When the rate is 0 the gap is constant
+    and BET simply tracks the DT trajectory in absolute terms.
+    """
     ts = np.arange(horizon, dtype=float)
-    return info_state.purchase_price_BET * (
-        1 + forecast_params.purchase_price_growth_BET * ts
+    dt_forecast = info_state.purchase_price_DT * (
+        1 + forecast_params.purchase_price_growth_DT * ts
     )
+    gap_0 = info_state.purchase_price_BET - info_state.purchase_price_DT
+    gap = np.maximum(0.0, gap_0 * (1 - forecast_params.BET_price_gap_closure_rate * ts))
+    return dt_forecast + gap
 
 
 def forecast_energy_price_diesel(
