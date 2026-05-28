@@ -69,7 +69,21 @@ def BET_price_step(
 def BET_productivity_logistic(
     year: int,
     config: BETProductivityConfig,
+    k: float,
+    t0: float,
 ) -> float:
-    """Compute BET productivity from a logistic growth curve at a given year."""
-    base = 1.0 / (1.0 + np.exp(-config.k * (year - config.t0)))
+    """Compute BET productivity from a logistic growth curve at a given year.
+
+    Parameters
+    ----------
+    year : int
+        Calendar year to evaluate the curve at.
+    config : BETProductivityConfig
+        Provides the ``start`` lower asymptote and ``max`` upper asymptote.
+    k : float
+        Logistic slope (steepness); sampled per episode.
+    t0 : float
+        Inflection year; sampled per episode.
+    """
+    base = 1.0 / (1.0 + np.exp(-k * (year - t0)))
     return float(config.start + (config.max - config.start) * base)

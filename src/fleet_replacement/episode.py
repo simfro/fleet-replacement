@@ -103,9 +103,17 @@ class EpisodeRecord:
         Random seed used for the episode.
     """
 
-    def __init__(self, steps: list[StepRecord], seed: int) -> None:
+    def __init__(
+        self,
+        steps: list[StepRecord],
+        seed: int,
+        bet_t0: float | None = None,
+        bet_k: float | None = None,
+    ) -> None:
         self.steps = steps
         self.seed = seed
+        self.bet_t0 = bet_t0
+        self.bet_k = bet_k
 
     # ------------------------------------------------------------------
     # Dimensions
@@ -430,4 +438,9 @@ class EpisodeRecorder(gymnasium.Wrapper):
         """
         if not self._steps:
             raise RuntimeError("No steps recorded yet. Call step() at least once.")
-        return EpisodeRecord(steps=list(self._steps), seed=self._seed)
+        return EpisodeRecord(
+            steps=list(self._steps),
+            seed=self._seed,
+            bet_t0=self.env._bet_t0,
+            bet_k=self.env._bet_k,
+        )

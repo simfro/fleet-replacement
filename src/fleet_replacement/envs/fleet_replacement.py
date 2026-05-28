@@ -108,6 +108,9 @@ class FleetReplacementEnv(gym.Env):
         )
 
         self._fleet = self._initial_fleet(self.fleet_size)
+        _bet_cfg = self.config.BET_productivity
+        self._bet_t0: float = (_bet_cfg.t0_min + _bet_cfg.t0_max) / 2.0
+        self._bet_k: float = (_bet_cfg.k_min + _bet_cfg.k_max) / 2.0
         self._info_state = self._initial_info_state()
         self._reward: dict[str, float]
 
@@ -153,6 +156,11 @@ class FleetReplacementEnv(gym.Env):
 
     def reset(self, *, seed=None, options=None):
         super().reset(seed=seed)
+
+        bet_cfg = self.config.BET_productivity
+        u = float(self.np_random.uniform())
+        self._bet_t0 = bet_cfg.t0_max - u * (bet_cfg.t0_max - bet_cfg.t0_min)
+        self._bet_k = bet_cfg.k_min + u * (bet_cfg.k_max - bet_cfg.k_min)
 
         self._current_year = self.start_year
         self._fleet = self._initial_fleet(self.fleet_size)
@@ -201,6 +209,8 @@ class FleetReplacementEnv(gym.Env):
             "productivity_BET": BET_productivity_logistic(
                 year=self.start_year,
                 config=self.config.BET_productivity,
+                k=self._bet_k,
+                t0=self._bet_t0,
             ),
         }
 
@@ -282,6 +292,8 @@ class FleetReplacementEnv(gym.Env):
             "productivity_BET": BET_productivity_logistic(
                 year=self._current_year,
                 config=self.config.BET_productivity,
+                k=self._bet_k,
+                t0=self._bet_t0,
             ),
         }
 

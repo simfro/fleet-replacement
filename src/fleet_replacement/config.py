@@ -37,8 +37,10 @@ class BETPriceConfig:
 class BETProductivityConfig:
     start: float
     max: float
-    k: float
-    t0: int
+    k_min: float
+    k_max: float
+    t0_min: int
+    t0_max: int
 
 
 @dataclass(frozen=True)
@@ -153,8 +155,10 @@ class EnvConfig:
             BET_productivity=BETProductivityConfig(
                 start=float(bet_productivity["start"]),
                 max=float(bet_productivity["max"]),
-                k=float(bet_productivity["k"]),
-                t0=int(bet_productivity["t0"]),
+                k_min=float(bet_productivity["k_min"]),
+                k_max=float(bet_productivity["k_max"]),
+                t0_min=int(bet_productivity["t0_min"]),
+                t0_max=int(bet_productivity["t0_max"]),
             ),
             operational=OperationalConfig(
                 fuel_consumption_l_per_km=float(
