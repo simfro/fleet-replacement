@@ -4,7 +4,7 @@ simulation_period:
 
 diesel_price:
   initial_price: 18.0
-  growth_rate: 0.01
+  growth_rate: 0.02
   volatility: 0.02
 
 electricity_price:
@@ -40,7 +40,7 @@ economic:
   interest_rate: 0.03
   loan_fraction: 0.8
   economic_lifetime: 5
-  discount_factor: 0.9
+  discount_factor: 0.97
 
 vehicle_management:
   fleet_size: 8
@@ -50,14 +50,14 @@ vehicle_management:
 residual_value:
   initial_depreciation: 0.2
   annual_depreciation_rate: 0.04
-  market_elasticity: 1.0
+  market_elasticity: 0.8
   floor_fraction: 0.1
 
 lookahead:
   horizon: 10
   forecast_rates:
-    diesel_price_growth: 0.00 # Diesel prices rise ~1 % p.a.
-    electricity_price_growth: 0.0 # Electricity prices held flat
-    purchase_price_growth_DT: 0.0 # DT prices constant
-    BET_price_gap_closure_rate: 0.01 # BET–DT price gap closes 5 % p.a. (parity in 20 years)
-    BET_productivity_growth: 0.01 # BET productivity grows ~1 % p.a.
+    diesel_price_growth: 0.03
+    electricity_price_growth: 0.0
+    purchase_price_growth_DT: 0.0
+    BET_price_gap_closure_rate: 0.05
+    BET_productivity_growth: 0.05
