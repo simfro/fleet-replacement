@@ -13,11 +13,11 @@ electricity_price:
   volatility: 0.04
 
 DT_price:
-  initial_price: 1600000.0
+  initial_price: 1800000.0
 
 BET_price:
   initial_price: 3200000.0
-  long_term_mean: 1600000.0
+  long_term_mean: 1800000.0
   mean_reversion_strength: 0.2
   purchase_price_volatility: 100000.0
 
