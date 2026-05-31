@@ -32,15 +32,15 @@ BET_productivity:
 operational:
   fuel_consumption_l_per_km: 0.6
   electricity_consumption_kwh_per_km: 2.5
-  driver_salary_annual: 400000
+  driver_salary_annual: 800000
   income_per_km: 30
   annual_mileage_km: 130000
 
 economic:
-  interest_rate: 0.03
+  interest_rate: 0.041
   loan_fraction: 0.8
   economic_lifetime: 5
-  discount_factor: 0.97
+  discount_factor: 0.96
 
 vehicle_management:
   fleet_size: 8
