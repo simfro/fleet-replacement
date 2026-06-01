@@ -1,0 +1,63 @@
+simulation_period:
+  base_year: 2026
+  final_year: 2046
+
+diesel_price:
+  initial_price: 18.0
+  growth_rate: 0.02
+  volatility: 0.02
+
+electricity_price:
+  initial_price: 3.0
+  growth_rate: 0.0
+  volatility: 0.04
+
+DT_price:
+  initial_price: 1800000.0
+
+BET_price:
+  initial_price: 3200000.0
+  long_term_mean: 1800000.0
+  mean_reversion_strength: 0.2
+  purchase_price_volatility: 100000.0
+
+BET_productivity:
+  start: 0.7
+  max: 0.95
+  k_min: 0.15
+  k_max: 0.60
+  t0_min: 2030
+  t0_max: 2042
+
+operational:
+  fuel_consumption_l_per_km: 0.6
+  electricity_consumption_kwh_per_km: 2.5
+  driver_salary_annual: 800000
+  income_per_km: 30
+  annual_mileage_km: 130000
+
+economic:
+  interest_rate: 0.041
+  loan_fraction: 0.8
+  economic_lifetime: 5
+  discount_factor: 0.96
+
+vehicle_management:
+  fleet_size: 8
+  max_age: 7
+  max_replacements: 1
+
+residual_value:
+  initial_depreciation: 0.2
+  annual_depreciation_rate: 0.04
+  market_elasticity: 0.8
+  floor_fraction: 0.1
+
+lookahead:
+  horizon: 10
+  forecast_rates:
+    diesel_price_growth: 0.01
+    electricity_price_growth: 0.0
+    purchase_price_growth_DT: 0.0
+    BET_price_gap_closure_rate: 0.02
+    BET_productivity_growth: 0.01
