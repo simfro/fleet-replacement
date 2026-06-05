@@ -10,6 +10,8 @@ name = "fleet_replacement"
 version = "0.0.1"
 dependencies = [
     "gymnasium",
+    "numpy",
+    "xarray",
     "pygame>=2.1.3",
     "pre-commit",
     "pyyaml>=6.0",

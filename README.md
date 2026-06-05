@@ -204,16 +204,29 @@ where $\Delta_0 = P_{\text{BET}}(0) - P_{\text{DT}}(0)$ is the current price gap
 
 ## Installation
 
-**Prerequisites:** Python 3.10+, a virtual environment (recommended).
+**Prerequisites:** Python 3.10+.
 
 ```bash
-# Clone the repository and install in editable mode
+# 1. Clone the repository
 git clone <repo-url>
 cd fleet-replacement
+
+# 2. Create and activate a virtual environment
+python -m venv .venv
+
+# On Windows:
+.venv\Scripts\activate
+# On macOS/Linux:
+source .venv/bin/activate
+
+# 3. Install the package and all dependencies
 pip install -e .
 ```
 
-All dependencies (`gymnasium`, `linopy`, `highspy`, `pyyaml`, `tqdm`, `pygame`) are declared in `pyproject.toml` and installed automatically.
+The `-e` flag installs the package in _editable mode_, meaning changes to the source files under `src/` take effect immediately without reinstalling. All dependencies (`gymnasium`, `numpy`, `xarray`, `linopy`, `highspy`, `pyyaml`, `tqdm`, `pygame`) are declared in `pyproject.toml` and installed automatically by pip.
+
+> **Why `pyproject.toml` and not `requirements.txt`?**  
+> `pyproject.toml` is the modern Python standard (PEP 517/621) for declaring a package's dependencies. Running `pip install -e .` reads it and installs everything into whichever environment is currently active — whether that is a `.venv`, a conda environment, or anything else. A `requirements.txt` with pinned versions can still be generated afterwards if exact reproducibility is needed (`pip freeze > requirements.txt`).
 
 **Verify the installation:**
 
