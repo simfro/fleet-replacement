@@ -1,10 +1,9 @@
-"""
-Run many episodes of FleetReplacementEnv using the LookaheadAgent policy
+"""Run many episodes of FleetReplacementEnv using a chosen agent policy
 and record each episode to disk.
 
 Results are written to an auto-named sub-directory of ``results/``:
 
-    results/batch_<config-stem>_<YYYYMMDD_HHMMSS>/
+    results/batch_<config-stem>_<agent>_<YYYYMMDD_HHMMSS>/
 
 A copy of the config YAML is placed in the output directory so the
 exact parameters used are transparent.  Each episode is saved as a
@@ -15,6 +14,7 @@ Usage
 -----
     python scripts/run_batch.py
     python scripts/run_batch.py --config configs/env.yaml --n-episodes 50 --seed-start 0
+    python scripts/run_batch.py --agent myopic --config configs/baseline.yaml --n-episodes 100
 """
 
 from __future__ import annotations
@@ -43,7 +43,7 @@ if str(SRC_PATH) not in sys.path:
 from fleet_replacement.config import load_env_config  # noqa: E402
 from fleet_replacement.envs.fleet_replacement import FleetReplacementEnv  # noqa: E402
 from fleet_replacement.episode import EpisodeRecord, EpisodeRecorder  # noqa: E402
-from fleet_replacement.policies import LookaheadAgent  # noqa: E402
+from fleet_replacement.policies import LookaheadAgent, MyopicAgent  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Episode runner (silent)
@@ -53,18 +53,26 @@ from fleet_replacement.policies import LookaheadAgent  # noqa: E402
 def _run_episode_silent(
     config,
     seed: int,
+    agent_name: str = "lookahead",
 ) -> EpisodeRecord:
     """Run one episode without any console output and return the record."""
     env = EpisodeRecorder(FleetReplacementEnv(config=config))
-    agent = LookaheadAgent(config)
+
+    if agent_name == "myopic":
+        agent: LookaheadAgent | MyopicAgent = MyopicAgent(env)
+    else:
+        agent = LookaheadAgent(config)
 
     obs, _ = env.reset(seed=seed)
 
     while True:
-        try:
+        if agent_name == "lookahead":
+            try:
+                action = agent.select_action(obs)
+            except RuntimeError:
+                action = np.zeros(len(obs["fleet"]["is_electric"]), dtype=np.int64)
+        else:
             action = agent.select_action(obs)
-        except RuntimeError:
-            action = np.zeros(len(obs["fleet"]["is_electric"]), dtype=np.int64)
 
         obs, _reward, terminated, truncated, _info = env.step(action)
 
@@ -125,6 +133,13 @@ def _parse_args() -> argparse.Namespace:
         default=0,
         help="First random seed.  Episodes use seeds [seed-start, seed-start + n-episodes).",
     )
+    parser.add_argument(
+        "--agent",
+        type=str,
+        default="lookahead",
+        choices=["lookahead", "myopic"],
+        help="Agent policy to use for all episodes.",
+    )
     return parser.parse_args()
 
 
@@ -135,17 +150,19 @@ def main() -> None:
 
     # Auto-generate output directory
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    output_dir = REPO_ROOT / "results" / f"batch_{config_path.stem}_{timestamp}"
+    output_dir = REPO_ROOT / "results" / f"batch_{config_path.stem}_{args.agent}_{timestamp}"
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # Copy config into the output folder for transparency
     shutil.copy(config_path, output_dir / config_path.name)
 
     print(f"Config     : {config_path}")
+    print(f"Agent      : {args.agent}")
     print(
         f"Episodes   : {args.n_episodes}  (seeds {args.seed_start} – {args.seed_start + args.n_episodes - 1})"
     )
-    print(f"Horizon    : {config.lookahead.horizon} periods")
+    if args.agent == "lookahead":
+        print(f"Horizon    : {config.lookahead.horizon} periods")
     print(f"Fleet size : {config.vehicle_management.fleet_size} vehicles")
     print(
         f"Episode    : {config.simulation_period.base_year}"
@@ -162,7 +179,7 @@ def main() -> None:
     with tqdm(total=args.n_episodes, unit="ep", dynamic_ncols=True) as bar:
         for seed in seeds:
             try:
-                record = _run_episode_silent(config, seed)
+                record = _run_episode_silent(config, seed, agent_name=args.agent)
             except Exception as exc:
                 tqdm.write(f"[WARN]  seed={seed}  failed: {exc}")
                 failed_seeds.append(seed)
