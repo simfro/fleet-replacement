@@ -114,9 +114,6 @@ class EnvConfig:
     economic: EconomicConfig
     vehicle_management: VehicleManagementConfig
     residual_value: ResidualValueConfig
-    lookahead: LookaheadConfig = field(
-        default_factory=lambda: LookaheadConfig(horizon=10)
-    )
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> EnvConfig:
@@ -193,7 +190,6 @@ class EnvConfig:
                 market_elasticity=float(residual_value["market_elasticity"]),
                 floor_fraction=float(residual_value["floor_fraction"]),
             ),
-            lookahead=_parse_lookahead(data.get("lookahead")),
         )
 
 
@@ -226,6 +222,26 @@ def load_env_config(config_path: str | Path) -> EnvConfig:
     config = EnvConfig.from_dict(data)
     _validate_config(config)
     return config
+
+
+def load_lookahead_config(config_path: str | Path) -> LookaheadConfig:
+    """Load a standalone lookahead agent config from a YAML file.
+
+    The file should contain a ``horizon`` key and an optional
+    ``forecast_rates`` mapping.  Example::
+
+        horizon: 10
+        forecast_rates:
+          diesel_price_growth: 0.02
+          BET_price_gap_closure_rate: 0.05
+          BET_productivity_growth: 0.05
+    """
+    path = Path(config_path)
+    with path.open("r", encoding="utf-8") as f:
+        data = yaml.safe_load(f)
+    if not isinstance(data, dict):
+        raise ValueError(f"Lookahead config must contain a mapping at top-level: {path}")
+    return _parse_lookahead(data)
 
 
 def _require_section(data: dict[str, Any], section_name: str) -> dict[str, Any]:

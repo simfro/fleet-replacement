@@ -29,7 +29,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from fleet_replacement.config import EnvConfig
+from fleet_replacement.config import EnvConfig, LookaheadConfig
 from fleet_replacement.policies.lookahead_model import (
     best_immediate_actions,
     build_model,
@@ -79,22 +79,31 @@ class LookaheadAgent:
 
     Parameters
     ----------
-    config:
-        Loaded environment configuration, including the ``lookahead`` section
-        that specifies the planning horizon and price forecast growth rates.
+    env_config:
+        Loaded environment configuration.
+    lookahead_config:
+        Lookahead-specific parameters: planning horizon and price forecast
+        growth rates.  Defaults to a 10-period horizon with zero growth rates
+        (current prices held constant).
 
     Examples
     --------
-    >>> agent = LookaheadAgent(config)
+    >>> agent = LookaheadAgent(env_config, lookahead_config)
     >>> action = agent.select_action(obs)   # np.ndarray, shape (fleet_size,)
     """
 
-    def __init__(self, config: EnvConfig) -> None:
-        self._config = config
+    def __init__(
+        self,
+        env_config: EnvConfig,
+        lookahead_config: LookaheadConfig | None = None,
+    ) -> None:
+        if lookahead_config is None:
+            lookahead_config = LookaheadConfig(horizon=10)
+        self._config = env_config
         self._model_params = ModelParams.from_env_config(
-            config, config.lookahead.horizon
+            env_config, lookahead_config.horizon
         )
-        fc = config.lookahead.forecast_rates
+        fc = lookahead_config.forecast_rates
         self._forecast_params = ForecastParams(
             diesel_price_growth=fc.diesel_price_growth,
             electricity_price_growth=fc.electricity_price_growth,

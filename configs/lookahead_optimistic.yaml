@@ -1,0 +1,7 @@
+horizon: 10
+forecast_rates:
+  diesel_price_growth: 0.03
+  electricity_price_growth: 0.0
+  purchase_price_growth_DT: 0.0
+  BET_price_gap_closure_rate: 0.05
+  BET_productivity_growth: 0.05

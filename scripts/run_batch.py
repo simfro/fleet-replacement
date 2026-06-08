@@ -14,7 +14,7 @@ Usage
 -----
     python scripts/run_batch.py
     python scripts/run_batch.py --config configs/env.yaml --n-episodes 50 --seed-start 0
-    python scripts/run_batch.py --agent myopic --config configs/baseline.yaml --n-episodes 100
+    python scripts/run_batch.py --agent myopic --config configs/env.yaml --n-episodes 100
 """
 
 from __future__ import annotations
@@ -40,7 +40,7 @@ SRC_PATH = REPO_ROOT / "src"
 if str(SRC_PATH) not in sys.path:
     sys.path.insert(0, str(SRC_PATH))
 
-from fleet_replacement.config import load_env_config  # noqa: E402
+from fleet_replacement.config import load_env_config, load_lookahead_config  # noqa: E402
 from fleet_replacement.envs.fleet_replacement import FleetReplacementEnv  # noqa: E402
 from fleet_replacement.episode import EpisodeRecord, EpisodeRecorder  # noqa: E402
 from fleet_replacement.policies import LookaheadAgent, MyopicAgent  # noqa: E402
@@ -54,6 +54,7 @@ def _run_episode_silent(
     config,
     seed: int,
     agent_name: str = "lookahead",
+    lookahead_config=None,
 ) -> EpisodeRecord:
     """Run one episode without any console output and return the record."""
     env = EpisodeRecorder(FleetReplacementEnv(config=config))
@@ -61,7 +62,7 @@ def _run_episode_silent(
     if agent_name == "myopic":
         agent: LookaheadAgent | MyopicAgent = MyopicAgent(env)
     else:
-        agent = LookaheadAgent(config)
+        agent = LookaheadAgent(config, lookahead_config)
 
     obs, _ = env.reset(seed=seed)
 
@@ -140,6 +141,14 @@ def _parse_args() -> argparse.Namespace:
         choices=["lookahead", "myopic"],
         help="Agent policy to use for all episodes.",
     )
+    parser.add_argument(
+        "--lookahead-config",
+        type=str,
+        default=None,
+        metavar="PATH",
+        help="Path to a lookahead agent YAML config (horizon + forecast_rates). "
+        "Ignored when --agent myopic. Defaults to 10-period horizon with zero growth rates.",
+    )
     return parser.parse_args()
 
 
@@ -147,6 +156,11 @@ def main() -> None:
     args = _parse_args()
     config_path = pathlib.Path(args.config).resolve()
     config = load_env_config(str(config_path))
+    lookahead_config = (
+        load_lookahead_config(args.lookahead_config)
+        if args.lookahead_config
+        else None
+    )
 
     # Auto-generate output directory
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -162,7 +176,9 @@ def main() -> None:
         f"Episodes   : {args.n_episodes}  (seeds {args.seed_start} – {args.seed_start + args.n_episodes - 1})"
     )
     if args.agent == "lookahead":
-        print(f"Horizon    : {config.lookahead.horizon} periods")
+        from fleet_replacement.config import LookaheadConfig
+        display_la = lookahead_config or LookaheadConfig(horizon=10)
+        print(f"Horizon    : {display_la.horizon} periods")
     print(f"Fleet size : {config.vehicle_management.fleet_size} vehicles")
     print(
         f"Episode    : {config.simulation_period.base_year}"
@@ -179,7 +195,10 @@ def main() -> None:
     with tqdm(total=args.n_episodes, unit="ep", dynamic_ncols=True) as bar:
         for seed in seeds:
             try:
-                record = _run_episode_silent(config, seed, agent_name=args.agent)
+                record = _run_episode_silent(
+                    config, seed, agent_name=args.agent,
+                    lookahead_config=lookahead_config,
+                )
             except Exception as exc:
                 tqdm.write(f"[WARN]  seed={seed}  failed: {exc}")
                 failed_seeds.append(seed)

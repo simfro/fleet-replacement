@@ -25,7 +25,7 @@ SRC_PATH = REPO_ROOT / "src"
 if str(SRC_PATH) not in sys.path:
     sys.path.insert(0, str(SRC_PATH))
 
-from fleet_replacement.config import load_env_config  # noqa: E402
+from fleet_replacement.config import load_env_config, load_lookahead_config  # noqa: E402
 from fleet_replacement.envs.fleet_replacement import FleetReplacementEnv  # noqa: E402
 from fleet_replacement.episode import EpisodeRecord, EpisodeRecorder  # noqa: E402
 from fleet_replacement.policies import LookaheadAgent  # noqa: E402
@@ -230,6 +230,14 @@ def _parse_args() -> argparse.Namespace:
         help="Random seed for the environment.",
     )
     parser.add_argument(
+        "--lookahead-config",
+        type=str,
+        default=None,
+        metavar="PATH",
+        help="Path to a lookahead agent YAML config (horizon + forecast_rates). "
+        "Defaults to 10-period horizon with zero growth rates.",
+    )
+    parser.add_argument(
         "--save",
         type=str,
         default=None,
@@ -242,19 +250,28 @@ def _parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = _parse_args()
-    config = load_env_config(args.config)
+    env_config = load_env_config(args.config)
+    lookahead_config = (
+        load_lookahead_config(args.lookahead_config)
+        if args.lookahead_config
+        else None
+    )
+
+    # For display: use the loaded config or fall back to defaults
+    from fleet_replacement.config import LookaheadConfig, ForecastRatesConfig
+    display_la = lookahead_config or LookaheadConfig(horizon=10)
 
     print(f"Config     : {args.config}")
     print(f"Seed       : {args.seed}")
-    print(f"Horizon    : {config.lookahead.horizon} periods")
-    print(f"Fleet size : {config.vehicle_management.fleet_size} vehicles")
+    print(f"Horizon    : {display_la.horizon} periods")
+    print(f"Fleet size : {env_config.vehicle_management.fleet_size} vehicles")
     print(
-        f"Episode    : {config.simulation_period.base_year}"
-        f" -> {config.simulation_period.final_year}"
-        f"  ({config.simulation_period.final_year - config.simulation_period.base_year} steps)"
+        f"Episode    : {env_config.simulation_period.base_year}"
+        f" -> {env_config.simulation_period.final_year}"
+        f"  ({env_config.simulation_period.final_year - env_config.simulation_period.base_year} steps)"
     )
 
-    fc = config.lookahead.forecast_rates
+    fc = display_la.forecast_rates
     print("Forecast rates")
     print(f"  Diesel price growth    : {fc.diesel_price_growth:+.3f}")
     print(f"  Electricity price growth: {fc.electricity_price_growth:+.3f}")
@@ -262,8 +279,8 @@ def main() -> None:
     print(f"  BET gap closure rate   : {fc.BET_price_gap_closure_rate:+.3f}")
     print(f"  BET productivity growth: {fc.BET_productivity_growth:+.3f}")
 
-    env = EpisodeRecorder(FleetReplacementEnv(config=config))
-    agent = LookaheadAgent(config)
+    env = EpisodeRecorder(FleetReplacementEnv(config=env_config))
+    agent = LookaheadAgent(env_config, lookahead_config)
 
     record = run_episode(env, agent, seed=args.seed)
 
