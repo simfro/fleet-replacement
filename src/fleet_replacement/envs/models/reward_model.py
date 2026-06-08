@@ -28,15 +28,49 @@ def compute_reward(fleet, info_state, action, config: EnvConfig) -> dict[str, fl
     config:
         Environment configuration.
     """
-    _KEEP = 0
+    reward_dict = compute_reward_without_sale_result(fleet, info_state, config)
+    sale_result = compute_sale_result(fleet, info_state, action, config)
+    reward_dict["sale_result"] = sale_result
+    reward_dict["total_reward"] += sale_result
 
+    # Sanity check, reward_dict shall have exactly the keys in REWARD_COMPONENT_KEYS.
+    # Update both if you add/remove components.
+    assert reward_dict.keys() == set(REWARD_COMPONENT_KEYS), (
+        f"compute_reward keys {set(reward_dict.keys())} do not match "
+        f"REWARD_COMPONENT_KEYS {set(REWARD_COMPONENT_KEYS)}"
+    )
+    return reward_dict
+
+
+def compute_sale_result(fleet, info_state, action, config: EnvConfig) -> float:
+    """Calculate sale result for replacement decisions using current fleet state."""
+    _KEEP = 0
+    fleet_size = len(fleet["is_electric"])
+    sale_result = 0.0
+
+    for i in range(fleet_size):
+        if action[i] != _KEEP:
+            sale_result += _sale_result(
+                purchase_price=fleet["purchase_price"][i],
+                age=fleet["age"][i],
+                is_electric=fleet["is_electric"][i],
+                info_state=info_state,
+                config=config,
+            )
+
+    return sale_result
+
+
+def compute_reward_without_sale_result(
+    fleet, info_state, config: EnvConfig
+) -> dict[str, float]:
+    """Calculate all reward terms except sale result for a given fleet/info state."""
     fleet_size = len(fleet["is_electric"])
     revenue = 0.0
     diesel_cost = 0.0
     electricity_cost = 0.0
     interest_cost = 0.0
     depreciation_cost = 0.0
-    sale_result = 0.0
 
     for i in range(fleet_size):
         if fleet["is_electric"][i]:
@@ -53,20 +87,11 @@ def compute_reward(fleet, info_state, action, config: EnvConfig) -> dict[str, fl
             config=config,
         )
 
-        if action[i] != _KEEP:
-            sale_result += _sale_result(
-                purchase_price=fleet["purchase_price"][i],
-                age=fleet["age"][i],
-                is_electric=fleet["is_electric"][i],
-                info_state=info_state,
-                config=config,
-            )
-
     salary_cost = config.operational.driver_salary_annual * fleet_size
 
     capex = interest_cost + depreciation_cost
     opex = diesel_cost + electricity_cost + salary_cost
-    total_reward = revenue - (capex + opex) + sale_result
+    total_reward = revenue - (capex + opex)
 
     reward_dict = {
         "revenue": revenue,
@@ -75,18 +100,12 @@ def compute_reward(fleet, info_state, action, config: EnvConfig) -> dict[str, fl
         "salary_cost": salary_cost,
         "interest_cost": interest_cost,
         "depreciation_cost": depreciation_cost,
-        "sale_result": sale_result,
+        "sale_result": 0.0,
         "capex": capex,
         "opex": opex,
         "total_reward": total_reward,
     }
 
-    # Sanity check, reward_dict shall have exactly the keys in REWARD_COMPONENT_KEYS.
-    # Update both if you add/remove components.
-    assert reward_dict.keys() == set(REWARD_COMPONENT_KEYS), (
-        f"compute_reward keys {set(reward_dict.keys())} do not match "
-        f"REWARD_COMPONENT_KEYS {set(REWARD_COMPONENT_KEYS)}"
-    )
     return reward_dict
 
 

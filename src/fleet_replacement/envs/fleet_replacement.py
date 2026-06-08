@@ -9,7 +9,8 @@ from fleet_replacement.config import EnvConfig, load_env_config
 from fleet_replacement.envs.models import (
     BET_price_step,
     BET_productivity_logistic,
-    compute_reward,
+    compute_reward_without_sale_result,
+    compute_sale_result,
     diesel_price_step,
     DT_price_step,
     electricity_price_step,
@@ -215,13 +216,19 @@ class FleetReplacementEnv(gym.Env):
         }
 
     def step(self, action):
-        self._reward = compute_reward(
+        sale_result = compute_sale_result(
             self._fleet, self._info_state, action, self.config
         )
-        reward = self._reward["total_reward"]
 
         self._update_fleet(action)
         self._update_info_state()
+
+        self._reward = compute_reward_without_sale_result(
+            self._fleet, self._info_state, self.config
+        )
+        self._reward["sale_result"] = sale_result
+        self._reward["total_reward"] += sale_result
+        reward = self._reward["total_reward"]
 
         observation = self._get_obs()
         info = self._get_info()
@@ -327,10 +334,11 @@ class FleetReplacementEnv(gym.Env):
         print(f"  BET purchase price: {float(info_state['purchase_price_BET']):,.0f}")
         print(f"  BET productivity: {float(info_state['productivity_BET']):.3f}")
 
-        if info["reward_components"]:
-            rc = info["reward_components"]
+        if info["reward"]:
+            rc = info["reward"]
             print("Reward components")
             print(f"  Revenue: {float(rc['revenue']):,.2f}")
-            print(f"  Total cost: {float(rc['total_cost']):,.2f}")
+            total_cost = float(rc["capex"] + rc["opex"])
+            print(f"  Total cost: {total_cost:,.2f}")
             print(f"  Sale result: {float(rc['sale_result']):,.2f}")
             print(f"  Total reward: {float(rc['total_reward']):,.2f}")
