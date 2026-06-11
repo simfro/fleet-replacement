@@ -40,7 +40,10 @@ SRC_PATH = REPO_ROOT / "src"
 if str(SRC_PATH) not in sys.path:
     sys.path.insert(0, str(SRC_PATH))
 
-from fleet_replacement.config import load_env_config, load_lookahead_config  # noqa: E402
+from fleet_replacement.config import (
+    load_env_config,
+    load_lookahead_config,
+)  # noqa: E402
 from fleet_replacement.envs.fleet_replacement import FleetReplacementEnv  # noqa: E402
 from fleet_replacement.episode import EpisodeRecord, EpisodeRecorder  # noqa: E402
 from fleet_replacement.policies import LookaheadAgent, MyopicAgent  # noqa: E402
@@ -157,14 +160,23 @@ def main() -> None:
     config_path = pathlib.Path(args.config).resolve()
     config = load_env_config(str(config_path))
     lookahead_config = (
-        load_lookahead_config(args.lookahead_config)
-        if args.lookahead_config
-        else None
+        load_lookahead_config(args.lookahead_config) if args.lookahead_config else None
     )
 
     # Auto-generate output directory
+    # timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    # output_dir = REPO_ROOT / "results" / f"batch_{config_path.stem}_{args.agent}_{timestamp}"
+
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    output_dir = REPO_ROOT / "results" / f"batch_{config_path.stem}_{args.agent}_{timestamp}"
+    variant = (
+        pathlib.Path(args.lookahead_config).stem
+        if args.lookahead_config
+        else args.agent
+    )
+    output_dir = (
+        REPO_ROOT / "results" / f"batch_{config_path.stem}_{variant}_{timestamp}"
+    )
+
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # Copy config into the output folder for transparency
@@ -177,6 +189,7 @@ def main() -> None:
     )
     if args.agent == "lookahead":
         from fleet_replacement.config import LookaheadConfig
+
         display_la = lookahead_config or LookaheadConfig(horizon=10)
         print(f"Horizon    : {display_la.horizon} periods")
     print(f"Fleet size : {config.vehicle_management.fleet_size} vehicles")
@@ -196,7 +209,9 @@ def main() -> None:
         for seed in seeds:
             try:
                 record = _run_episode_silent(
-                    config, seed, agent_name=args.agent,
+                    config,
+                    seed,
+                    agent_name=args.agent,
                     lookahead_config=lookahead_config,
                 )
             except Exception as exc:
