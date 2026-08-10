@@ -4,6 +4,7 @@ import matplotlib.lines as mlines
 import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 import seaborn as sns
 from matplotlib.colors import ListedColormap, to_rgb
 from fleet_replacement.policies.lookahead_model import make_forecast, InfoState
@@ -113,13 +114,20 @@ _VEHICLE_TYPES = ["DT", "BET"]
 _FLEET_COLOR_MAP = {"DT": "black", "BET": "green"}
 
 
-def plot_fleet_composition(model) -> None:
+def plot_fleet_composition(model, initial_fleet=None) -> None:
     """Heatmap of vehicle type and age per (fleet slot, planning period).
 
     Colour indicates vehicle type; opacity fades with age so newer vehicles
     appear vivid and older ones more transparent.
     """
-    r_sol = model.solution["R"]
+    r_sol = None
+    try:
+        r_sol = model.solution["R"]
+    except Exception:
+        r_sol = None
+    if r_sol is None or int(getattr(r_sol, "size", 0)) == 0:
+        r_sol = model.variables["R"].solution
+
     active_fleet = (
         r_sol.fillna(0)
         .to_series()
@@ -128,6 +136,73 @@ def plot_fleet_composition(model) -> None:
         .query("active > 0.5")[["time", "slot", "vehicle_type", "vehicle_age"]]
         .reset_index(drop=True)
     )
+
+    if active_fleet.empty and initial_fleet is not None:
+        x_sol = None
+        try:
+            x_sol = model.solution["x"]
+        except Exception:
+            x_sol = None
+        if x_sol is None or int(getattr(x_sol, "size", 0)) == 0:
+            x_sol = model.variables["x"].solution
+
+        decision_values = list(x_sol.coords["decision"].values)
+        dt_decision = next((d for d in decision_values if "Replace_DT" in str(d)), None)
+        bet_decision = next(
+            (d for d in decision_values if "Replace_BET" in str(d)), None
+        )
+
+        if dt_decision is not None and bet_decision is not None:
+            times_x = [int(t) for t in x_sol.coords["time"].values]
+            slots_x = [int(s) for s in x_sol.coords["slot"].values]
+
+            slot_type = [
+                "BET" if str(v.vehicle_type).endswith("BET") else "DT"
+                for v in initial_fleet[: len(slots_x)]
+            ]
+            slot_age = [int(v.age) for v in initial_fleet[: len(slots_x)]]
+
+            rows = []
+            for t in sorted(times_x):
+                for slot in slots_x:
+                    x_slot = x_sol.sel(time=t, slot=slot)
+                    rep_dt = float(x_slot.sel(decision=dt_decision)) > 0.5
+                    rep_bet = float(x_slot.sel(decision=bet_decision)) > 0.5
+
+                    if rep_dt:
+                        slot_type[slot] = "DT"
+                        slot_age[slot] = 0
+                    elif rep_bet:
+                        slot_type[slot] = "BET"
+                        slot_age[slot] = 0
+
+                    rows.append(
+                        {
+                            "time": int(t),
+                            "slot": int(slot),
+                            "vehicle_type": slot_type[slot],
+                            "vehicle_age": int(slot_age[slot]),
+                        }
+                    )
+                    slot_age[slot] += 1
+
+            active_fleet = pd.DataFrame(rows)
+
+    if active_fleet.empty:
+        fig, ax = plt.subplots(figsize=(7, 3.5))
+        ax.axis("off")
+        ax.text(
+            0.5,
+            0.5,
+            "No active fleet entries found in solved variable R.",
+            ha="center",
+            va="center",
+            fontsize=11,
+        )
+        ax.set_title("Fleet composition over the planning horizon")
+        plt.tight_layout()
+        plt.show()
+        return
 
     pivot_type = active_fleet.pivot(index="slot", columns="time", values="vehicle_type")
     pivot_age = active_fleet.pivot(
@@ -155,7 +230,8 @@ def plot_fleet_composition(model) -> None:
             rgba[i, j, 3] = alpha_max - (age / max_age) * (alpha_max - alpha_min)
 
     fig, ax = plt.subplots(figsize=(max(6, n_times * 0.7), max(3, n_slots * 0.6)))
-    ax.set_facecolor("white")
+    fig.patch.set_alpha(0)
+    ax.set_facecolor("none")
     ax.imshow(rgba, aspect="auto", extent=(-0.5, n_times - 0.5, n_slots - 0.5, -0.5))
 
     # Age annotations
@@ -237,7 +313,8 @@ def plot_episode_fleet_composition(record) -> None:
     tick_step = max(1, n_steps // 20)
 
     fig, ax = plt.subplots(figsize=(max(8, n_steps * 0.35), max(3, n_slots * 0.6)))
-    ax.set_facecolor("white")
+    fig.patch.set_alpha(0)
+    ax.set_facecolor("none")
     ax.imshow(rgba, aspect="auto", extent=(-0.5, n_steps - 0.5, n_slots - 0.5, -0.5))
 
     # Age annotations (skip when there are many columns to keep the chart readable)
